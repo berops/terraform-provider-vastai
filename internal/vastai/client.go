@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -214,46 +215,114 @@ type SSHKey struct {
 	CreatedAt time.Time
 }
 
+// sshKeyJSON is the wire form of a key. The create endpoint calls the key
+// material public_key and the list endpoint calls it key; both are read.
+//
+// The OpenAPI spec declares created_at as an RFC 3339 string, but the API
+// sends epoch seconds, so the generated parsers reject every key response.
+// This hand-written form decodes either representation.
+type sshKeyJSON struct {
+	ID        int64    `json:"id"`
+	UserID    int64    `json:"user_id"`
+	PublicKey string   `json:"public_key"`
+	Key       string   `json:"key"`
+	CreatedAt unixTime `json:"created_at"`
+}
+
+func (k sshKeyJSON) sshKey() SSHKey {
+	return SSHKey{
+		ID:        k.ID,
+		UserID:    k.UserID,
+		PublicKey: cmp.Or(k.PublicKey, k.Key),
+		CreatedAt: k.CreatedAt.Time,
+	}
+}
+
 // CreateSSHKey registers publicKey on the account. The API also adds it to
 // every instance the account currently owns.
 func (c *Client) CreateSSHKey(ctx context.Context, publicKey string) (SSHKey, error) {
-	r, err := c.CreateSSHKeyWithResponse(ctx, CreateSSHKeyJSONRequestBody{SSHKey: publicKey})
+	// The generated CreateSSHKeyWithResponse cannot decode the body (see
+	// sshKeyJSON), so issue the request through the generated transport
+	// and decode the body here.
+	r, err := readResponse(c.ClientInterface.CreateSSHKey(ctx, CreateSSHKeyJSONRequestBody{SSHKey: publicKey}))
 	if err := check(r, err); err != nil {
 		return SSHKey{}, fmt.Errorf("creating ssh key: %w", err)
 	}
-	if r.JSON200 == nil || r.JSON200.Key == nil {
-		return SSHKey{}, fmt.Errorf("creating ssh key: no key in response: %s", r.Body)
+	var body struct {
+		Key *sshKeyJSON `json:"key"`
 	}
-	k := r.JSON200.Key
-	return SSHKey{
-		ID:        int64(deref(k.ID)),
-		UserID:    int64(deref(k.UserID)),
-		PublicKey: cmp.Or(deref(k.PublicKey), publicKey),
-		CreatedAt: deref(k.CreatedAt),
-	}, nil
+	if err := json.Unmarshal(r.body, &body); err != nil {
+		return SSHKey{}, fmt.Errorf("creating ssh key: decoding response: %w: %s", err, r.body)
+	}
+	if body.Key == nil {
+		return SSHKey{}, fmt.Errorf("creating ssh key: no key in response: %s", r.body)
+	}
+	k := body.Key.sshKey()
+	k.PublicKey = cmp.Or(k.PublicKey, publicKey)
+	return k, nil
 }
 
 // ListSSHKeys returns every key registered on the account.
 func (c *Client) ListSSHKeys(ctx context.Context) ([]SSHKey, error) {
-	r, err := c.GetSSHKeysUserWithResponse(ctx, &GetSSHKeysUserParams{Authorization: c.bearer})
+	// Decoded by hand for the same reason as CreateSSHKey.
+	r, err := readResponse(c.ClientInterface.GetSSHKeysUser(ctx, &GetSSHKeysUserParams{Authorization: c.bearer}))
 	switch err := check(r, err); {
 	case errors.Is(err, ErrNotFound):
 		return nil, nil // the API reports "no keys" as 404
 	case err != nil:
 		return nil, fmt.Errorf("listing ssh keys: %w", err)
-	case r.JSON200 == nil:
-		return nil, fmt.Errorf("listing ssh keys: unexpected response: %s", r.Body)
 	}
-	keys := make([]SSHKey, 0, len(*r.JSON200))
-	for _, k := range *r.JSON200 {
-		keys = append(keys, SSHKey{
-			ID:        int64(deref(k.ID)),
-			UserID:    int64(deref(k.UserID)),
-			PublicKey: deref(k.Key),
-			CreatedAt: deref(k.CreatedAt),
-		})
+	var body []sshKeyJSON
+	if err := json.Unmarshal(r.body, &body); err != nil {
+		return nil, fmt.Errorf("listing ssh keys: decoding response: %w: %s", err, r.body)
+	}
+	keys := make([]SSHKey, 0, len(body))
+	for _, k := range body {
+		keys = append(keys, k.sshKey())
 	}
 	return keys, nil
+}
+
+// unixTime is a timestamp that decodes from the epoch-second numbers Vast.ai
+// returns as well as from the RFC 3339 strings its spec promises, so the
+// client keeps working if the API is ever brought in line with the spec.
+type unixTime struct{ time.Time }
+
+func (t *unixTime) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		return nil
+	}
+	var secs float64
+	if err := json.Unmarshal(b, &secs); err == nil {
+		whole, frac := math.Modf(secs)
+		t.Time = time.Unix(int64(whole), int64(math.Round(frac*1e9))).UTC()
+		return nil
+	}
+	return json.Unmarshal(b, &t.Time)
+}
+
+// rawResponse is a fully read HTTP response. It satisfies response so that
+// bodies the generated parsers cannot decode can still go through check.
+type rawResponse struct {
+	status int
+	body   []byte
+}
+
+func (r rawResponse) StatusCode() int { return r.status }
+func (r rawResponse) GetBody() []byte { return r.body }
+
+// readResponse drains rsp into a rawResponse. It takes the (response, error)
+// pair of a generated transport call directly so callers can wrap them.
+func readResponse(rsp *http.Response, err error) (rawResponse, error) {
+	if err != nil {
+		return rawResponse{}, err
+	}
+	defer func() { _ = rsp.Body.Close() }()
+	body, err := io.ReadAll(rsp.Body)
+	if err != nil {
+		return rawResponse{}, fmt.Errorf("reading response body: %w", err)
+	}
+	return rawResponse{status: rsp.StatusCode, body: body}, nil
 }
 
 // UpdateSSHKey replaces the public key stored under id.

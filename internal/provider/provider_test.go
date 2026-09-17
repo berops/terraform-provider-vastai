@@ -1,10 +1,10 @@
-// Copyright IBM Corp. 2021, 2026
-// SPDX-License-Identifier: MPL-2.0
-
 package provider
 
 import (
+	"os"
 	"testing"
+
+	"terraform-provider-vastai/internal/vastai"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
@@ -15,20 +15,37 @@ import (
 // The factory function is called for each Terraform CLI command to create a provider
 // server that the CLI can connect to and interact with.
 var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
-	"scaffolding": providerserver.NewProtocol6WithError(New("test")()),
+	"vastai": providerserver.NewProtocol6WithError(New("test")()),
 }
 
-// testAccProtoV6ProviderFactoriesWithEcho includes the echo provider alongside the scaffolding provider.
+// testAccProtoV6ProviderFactoriesWithEcho includes the echo provider alongside the vastai provider.
 // It allows for testing assertions on data returned by an ephemeral resource during Open.
 // The echoprovider is used to arrange tests by echoing ephemeral data into the Terraform state.
 // This lets the data be referenced in test assertions with state checks.
 var testAccProtoV6ProviderFactoriesWithEcho = map[string]func() (tfprotov6.ProviderServer, error){
-	"scaffolding": providerserver.NewProtocol6WithError(New("test")()),
-	"echo":        echoprovider.NewProviderServer(),
+	"vastai": providerserver.NewProtocol6WithError(New("test")()),
+	"echo":   echoprovider.NewProviderServer(),
 }
 
+// testAccPreCheck fails fast when the credentials acceptance tests need are missing.
 func testAccPreCheck(t *testing.T) {
-	// You can add code here to run prior to any test case execution, for example assertions
-	// about the appropriate environment variables being set are common to see in a pre-check
-	// function.
+	t.Helper()
+	if os.Getenv("VASTAI_API_KEY") == "" {
+		t.Fatal("VASTAI_API_KEY must be set for acceptance tests")
+	}
+}
+
+// newVastAiClient returns an API client configured the same way the provider
+// configures itself, for verifying remote state outside of Terraform.
+func newVastAiClient(t *testing.T) *vastai.Client {
+	t.Helper()
+	apiURL := os.Getenv("VASTAI_API_URL")
+	if apiURL == "" {
+		apiURL = "https://console.vast.ai"
+	}
+	client, err := vastai.New(os.Getenv("VASTAI_API_KEY"), apiURL)
+	if err != nil {
+		t.Fatalf("creating vastai client: %v", err)
+	}
+	return client
 }
