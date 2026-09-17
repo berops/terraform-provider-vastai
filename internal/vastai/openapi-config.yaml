@@ -1,0 +1,25 @@
+package: vastai
+output: client.gen.go
+
+generate:
+  client: true
+  models: true
+
+output-options:
+  include-operation-ids:
+    - showSshKeys
+    - getSshKeysUser
+    - createSshKey
+    - deleteSshKey
+    - updateSshKey
+    - createInstance
+    - destroyInstance
+    - showInstance
+
+  skip-prune: false
+  nullable-type: true
+  name-normalizer: ToCamelCaseWithInitialisms
+  client-type-name: VastAiClient
+
+compatibility:
+  always-prefix-enum-values: true

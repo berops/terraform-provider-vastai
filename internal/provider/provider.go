@@ -114,42 +114,39 @@ func (p *VastAiProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		return
 	}
 
-	// Example client configuration for data sources and resources
-	// client, err := vastai.NewClient(&host, &username, &password)
-	client := vastai.NewVastAiClient(apiKey, apiUrl)
+	client, err := vastai.New(apiKey, apiUrl)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Create Vast.ai API Client",
+			"An unexpected error occurred when creating the Vast.ai API client: "+err.Error(),
+		)
+		return
+	}
 	resp.DataSourceData = client
 	resp.ResourceData = client
 }
 
 func (p *VastAiProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		NewExampleResource,
 		NewInstanceResource,
+		NewSshKeyResource,
 	}
 }
 
 func (p *VastAiProvider) EphemeralResources(ctx context.Context) []func() ephemeral.EphemeralResource {
-	return []func() ephemeral.EphemeralResource{
-		NewExampleEphemeralResource,
-	}
+	return nil
 }
 
 func (p *VastAiProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{
-		NewExampleDataSource,
-	}
+	return nil
 }
 
 func (p *VastAiProvider) Functions(ctx context.Context) []func() function.Function {
-	return []func() function.Function{
-		NewExampleFunction,
-	}
+	return nil
 }
 
 func (p *VastAiProvider) Actions(ctx context.Context) []func() action.Action {
-	return []func() action.Action{
-		NewExampleAction,
-	}
+	return nil
 }
 
 func New(version string) func() provider.Provider {

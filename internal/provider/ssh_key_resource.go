@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"terraform-provider-vastai/internal/vastai"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -26,7 +27,7 @@ func NewSshKeyResource() resource.Resource {
 }
 
 type sshKeyResource struct {
-	client *vastai.VastAiClient
+	client *vastai.Client
 }
 
 type sshKeyResourceModel struct {
@@ -39,7 +40,7 @@ type sshKeyResourceModel struct {
 func (m *sshKeyResourceModel) applySSHKey(key vastai.SSHKey) {
 	m.ID = types.Int64Value(key.ID)
 	m.UserID = types.Int64Value(key.UserID)
-	m.CreatedAt = types.StringValue(key.CreatedAt)
+	m.CreatedAt = types.StringValue(key.CreatedAt.Format(time.RFC3339))
 }
 
 func (r *sshKeyResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -94,11 +95,11 @@ func (r *sshKeyResource) Configure(
 		return
 	}
 
-	client, ok := req.ProviderData.(*vastai.VastAiClient)
+	client, ok := req.ProviderData.(*vastai.Client)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected *vastai.VastAiClient, got: %T", req.ProviderData),
+			fmt.Sprintf("Expected *vastai.Client, got: %T", req.ProviderData),
 		)
 		return
 	}
@@ -163,13 +164,15 @@ func (r *sshKeyResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
-	updatedKey, err := r.client.UpdateSSHKey(ctx, stateModel.ID.ValueInt64(), planModel.PublicKey.ValueString())
-	if err != nil {
+	if err := r.client.UpdateSSHKey(ctx, stateModel.ID.ValueInt64(), planModel.PublicKey.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error updating SSH key", err.Error())
 		return
 	}
 
-	planModel.applySSHKey(updatedKey)
+	// Only the key material changes; the identity and timestamps carry over.
+	planModel.ID = stateModel.ID
+	planModel.UserID = stateModel.UserID
+	planModel.CreatedAt = stateModel.CreatedAt
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &planModel)...)
 }

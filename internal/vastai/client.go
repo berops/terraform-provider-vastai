@@ -1,7 +1,7 @@
 package vastai
 
 import (
-	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,282 +12,176 @@ import (
 	"time"
 )
 
-const poolingTime = 10 * time.Second
+// Instance actual_status values relevant to lifecycle handling.
+const (
+	InstanceStatusRunning = "running"
+	InstanceStatusExited  = "exited"
+	InstanceStatusUnknown = "unknown"
+	InstanceStatusOffline = "offline"
+)
 
-// VastAiClient is a minimal Vast.ai REST API client.
-type VastAiClient struct {
-	baseURL    string
-	apiKey     string
-	httpClient *http.Client
+const pollInterval = 10 * time.Second
+
+// ErrNotFound is reported when the requested object does not exist.
+// APIErrors with a 404 status match it via errors.Is.
+var ErrNotFound = errors.New("not found")
+
+// Client is the generated client bound to a Vast.ai account. It adds
+// authentication, uniform error handling and the lifecycle helpers the
+// provider needs; every generated operation remains available on it.
+type Client struct {
+	*ClientWithResponses
+	bearer string
 }
 
-// New creates a client for the given base URL (e.g. "https://console.vast.ai/api/v0")
-// authenticated with the given API key.
-func NewVastAiClient(apiKey, baseURL string) *VastAiClient {
-	return &VastAiClient{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		apiKey:     apiKey,
-		httpClient: &http.Client{Timeout: 60 * time.Second},
+// New returns a Client for baseURL (e.g. "https://console.vast.ai")
+// authenticated with apiKey.
+func New(apiKey, baseURL string) (*Client, error) {
+	bearer := "Bearer " + apiKey
+	auth := func(_ context.Context, req *http.Request) error {
+		req.Header.Set("Authorization", bearer)
+		req.Header.Set("Accept", "application/json")
+		return nil
 	}
+	c, err := NewClientWithResponses(baseURL,
+		WithHTTPClient(&http.Client{Timeout: 60 * time.Second}),
+		WithRequestEditorFn(auth),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{ClientWithResponses: c, bearer: bearer}, nil
 }
 
-// APIError is returned when the API responds with a non-2xx status
-// or a {"success": false} body.
+// APIError is an error response from the API: a non-2xx status, or a 2xx
+// body carrying {"success": false}, which Vast.ai uses for many failures.
 type APIError struct {
 	StatusCode int
-	Code       string // machine-readable "error" field, e.g. "no_ssh_key"; may be empty
+	Code       string // the "error" field, e.g. "no_ssh_key"; may be empty
 	Message    string
 }
 
 func (e *APIError) Error() string {
 	if e.Code != "" && e.Code != e.Message {
-		return fmt.Sprintf("vast.ai api error (status %d): %s: %s", e.StatusCode, e.Code, e.Message)
+		return fmt.Sprintf("vast.ai: %s: %s (status %d)", e.Code, e.Message, e.StatusCode)
 	}
-	return fmt.Sprintf("vast.ai api error (status %d): %s", e.StatusCode, e.Message)
+	return fmt.Sprintf("vast.ai: %s (status %d)", e.Message, e.StatusCode)
 }
 
-// IsCode reports whether err is an APIError carrying the given error code.
-func IsCode(err error, code string) bool {
-	var apiErr *APIError
-	return errors.As(err, &apiErr) && apiErr.Code == code
+func (e *APIError) Is(target error) bool {
+	return target == ErrNotFound && e.StatusCode == http.StatusNotFound
 }
 
-// Do sends a request to path (relative to baseURL) with an optional JSON body
-// and decodes the JSON response into result (may be nil).
-func (c *VastAiClient) Do(ctx context.Context, method, path string, body, result any) error {
-	var reqBody io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return fmt.Errorf("encoding body: %w", err)
-		}
-		reqBody = bytes.NewReader(b)
-	}
+// response is the part of every generated *Response type check relies on.
+type response interface {
+	StatusCode() int
+	GetBody() []byte
+}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+"/"+strings.TrimLeft(path, "/"), reqBody)
+// check turns a failed call or an error response into an error.
+func check(r response, err error) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Accept", "application/json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("reading response: %w", err)
-	}
-
-	if resp.StatusCode >= 400 {
-		code, msg := errorFields(data)
-		return &APIError{StatusCode: resp.StatusCode, Code: code, Message: msg}
-	}
-
-	// Vast.ai often returns HTTP 200 with {"success": false, "msg": "..."}.
 	var env struct {
-		Success *bool `json:"success"`
+		Success *bool  `json:"success"`
+		Error   string `json:"error"`
+		Msg     string `json:"msg"`
+		Detail  string `json:"detail"` // used by 429 responses
 	}
-	if json.Unmarshal(data, &env) == nil && env.Success != nil && !*env.Success {
-		code, msg := errorFields(data)
-		return &APIError{StatusCode: resp.StatusCode, Code: code, Message: msg}
+	body := r.GetBody()
+	_ = json.Unmarshal(body, &env) // best effort; error bodies are not always JSON
+	if r.StatusCode() < 400 && (env.Success == nil || *env.Success) {
+		return nil
 	}
-
-	if result != nil && len(data) > 0 {
-		if err := json.Unmarshal(data, result); err != nil {
-			return fmt.Errorf("decoding response: %w", err)
-		}
+	return &APIError{
+		StatusCode: r.StatusCode(),
+		Code:       env.Error,
+		Message:    cmp.Or(env.Msg, env.Detail, env.Error, strings.TrimSpace(string(body)), http.StatusText(r.StatusCode())),
 	}
-	return nil
 }
 
-func (c *VastAiClient) Get(ctx context.Context, path string, result any) error {
-	return c.Do(ctx, http.MethodGet, path, nil, result)
+func hasCode(err error, code string) bool {
+	var e *APIError
+	return errors.As(err, &e) && e.Code == code
 }
 
-func (c *VastAiClient) Post(ctx context.Context, path string, body, result any) error {
-	return c.Do(ctx, http.MethodPost, path, body, result)
+func hasStatus(err error, status int) bool {
+	var e *APIError
+	return errors.As(err, &e) && e.StatusCode == status
 }
 
-func (c *VastAiClient) Put(ctx context.Context, path string, body, result any) error {
-	return c.Do(ctx, http.MethodPut, path, body, result)
-}
-
-func (c *VastAiClient) Delete(ctx context.Context, path string, body, result any) error {
-	return c.Do(ctx, http.MethodDelete, path, body, result)
-}
-
-// errorFields pulls the "error" code and "msg" text out of a JSON error body.
-// The message falls back to the code, then to the raw body, so it is never empty.
-func errorFields(data []byte) (code, msg string) {
-	var m map[string]any
-	if json.Unmarshal(data, &m) == nil {
-		code, _ = m["error"].(string)
-		msg, _ = m["msg"].(string)
-		if msg == "" {
-			// 429 bodies use "detail".
-			msg, _ = m["detail"].(string)
-		}
+// CreateInstance rents offer askID and returns the ID of the new contract.
+func (c *Client) CreateInstance(ctx context.Context, askID int64, body CreateInstanceJSONRequestBody) (int64, error) {
+	r, err := c.CreateInstanceWithResponse(ctx, int(askID), body)
+	if err := check(r, err); err != nil {
+		return 0, fmt.Errorf("creating instance from offer %d: %w", askID, err)
 	}
-	if msg == "" {
-		msg = code
+	if r.JSON200 == nil || r.JSON200.NewContract == nil {
+		return 0, fmt.Errorf("creating instance from offer %d: no contract ID in response: %s", askID, r.Body)
 	}
-	if msg == "" {
-		msg = string(data)
-	}
-	return code, msg
+	return int64(*r.JSON200.NewContract), nil
 }
 
-func (c *VastAiClient) CreateInstance(ctx context.Context, id int, reqBody CreateInstanceRequest) (CreateInstanceResponse, error) {
-	path := fmt.Sprintf("/api/v0/asks/%d/", id)
-	resp := CreateInstanceResponse{}
-	reqBody.ClientID = "me"
-
-	if err := c.Put(ctx, path, reqBody, &resp); err != nil {
-		return CreateInstanceResponse{}, fmt.Errorf("creating instance from offer %d: %w", id, err)
+// ShowInstance returns the instance, or ErrNotFound if it no longer exists.
+func (c *Client) ShowInstance(ctx context.Context, id int64) (*Instance, error) {
+	r, err := c.ShowInstanceWithResponse(ctx, int(id))
+	if err := check(r, err); err != nil {
+		return nil, fmt.Errorf("showing instance %d: %w", id, err)
 	}
-
-	return resp, nil
+	// A destroyed instance may come back as an empty object rather than a 404.
+	if r.JSON200 == nil || r.JSON200.Instances == nil || r.JSON200.Instances.ID == nil {
+		return nil, fmt.Errorf("showing instance %d: %w", id, ErrNotFound)
+	}
+	return r.JSON200.Instances, nil
 }
 
-func (c *VastAiClient) ShowInstance(ctx context.Context, id int64) (Instance, error) {
-	path := fmt.Sprintf("/api/v0/instances/%d/", id)
-	resp := ShowInstanceResponse{}
-
-	if err := c.Get(ctx, path, &resp); err != nil {
-		return Instance{}, fmt.Errorf("showing instance %d: %w", id, err)
-	}
-
-	return resp.Instances, nil
-}
-
-// DestroyInstance permanently destroys an instance and all its data. An
-// instance that no longer exists is treated as already destroyed.
-func (c *VastAiClient) DestroyInstance(ctx context.Context, id int64) error {
-	path := fmt.Sprintf("/api/v0/instances/%d/", id)
-	resp := DestroyInstanceResponse{}
-
-	// The API expects a JSON body even though it carries nothing.
-	if err := c.Delete(ctx, path, struct{}{}, &resp); err != nil {
-		var apiErr *APIError
-		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
-			return nil
-		}
+// DestroyInstance permanently destroys an instance and all its data.
+// Destroying an instance that no longer exists is not an error.
+func (c *Client) DestroyInstance(ctx context.Context, id int64) error {
+	// The API expects a JSON body even though it carries nothing; the spec
+	// (and so the generated request) has none.
+	r, err := c.DestroyInstanceWithResponse(ctx, int(id), withJSONBody("{}"))
+	if err := check(r, err); err != nil && !errors.Is(err, ErrNotFound) {
 		return fmt.Errorf("destroying instance %d: %w", id, err)
 	}
-
 	return nil
 }
 
-// CreateSSHKey registers a public key on the account. The API also adds it
-// to every instance the account currently owns.
-func (c *VastAiClient) CreateSSHKey(ctx context.Context, publicKey string) (SSHKey, error) {
-	resp := CreateSSHKeyResponse{}
-
-	if err := c.Post(ctx, "/api/v0/ssh/", CreateSSHKeyRequest{SSHKey: publicKey}, &resp); err != nil {
-		return SSHKey{}, fmt.Errorf("creating ssh key: %w", err)
+func withJSONBody(body string) RequestEditorFn {
+	return func(_ context.Context, req *http.Request) error {
+		req.Body = io.NopCloser(strings.NewReader(body))
+		req.ContentLength = int64(len(body))
+		req.Header.Set("Content-Type", "application/json")
+		return nil
 	}
-
-	return resp.Key, nil
 }
 
-// UpdateSSHKey replaces the public key stored under id.
-func (c *VastAiClient) UpdateSSHKey(ctx context.Context, id int64, publicKey string) (SSHKey, error) {
-	path := fmt.Sprintf("/api/v0/ssh/%d/", id)
-	resp := UpdateSSHKeyResponse{}
-
-	if err := c.Put(ctx, path, UpdateSSHKeyRequest{ID: id, SSHKey: publicKey}, &resp); err != nil {
-		return SSHKey{}, fmt.Errorf("updating ssh key %d: %w", id, err)
-	}
-
-	key := resp.Key.toSSHKey()
-	// Fill in what the caller already knows if the response omits it.
-	if key.ID == 0 {
-		key.ID = id
-	}
-	if key.PublicKey == "" {
-		key.PublicKey = publicKey
-	}
-
-	return key, nil
-}
-
-// DeleteSSHKey removes a public key from the account. A key that no longer
-// exists is treated as already deleted.
-func (c *VastAiClient) DeleteSSHKey(ctx context.Context, id int64) error {
-	path := fmt.Sprintf("/api/v0/ssh/%d/", id)
-	resp := DeleteSSHKeyResponse{}
-
-	if err := c.Delete(ctx, path, nil, &resp); err != nil {
-		// A missing key is reported as 400 no_ssh_key, not 404; accept both.
-		var apiErr *APIError
-		if IsCode(err, "no_ssh_key") || (errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound) {
-			return nil
-		}
-		return fmt.Errorf("deleting ssh key %d: %w", id, err)
-	}
-
-	return nil
-}
-
-// ListSSHKeys returns every public key registered on the account. An
-// account with no keys yields an empty list, not an error.
-func (c *VastAiClient) ListSSHKeys(ctx context.Context) ([]SSHKey, error) {
-	var items []sshKeyListItem
-
-	if err := c.Get(ctx, "/api/v0/ssh/", &items); err != nil {
-		// The API reports "no keys" as 404 rather than an empty array.
-		var apiErr *APIError
-		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
-			return []SSHKey{}, nil
-		}
-		return nil, fmt.Errorf("listing ssh keys: %w", err)
-	}
-
-	keys := make([]SSHKey, 0, len(items))
-	for _, item := range items {
-		keys = append(keys, item.toSSHKey())
-	}
-
-	return keys, nil
-}
-
-func (c *VastAiClient) WaitForStatus(ctx context.Context, id int64, target string) (Instance, error) {
-	ticker := time.NewTicker(poolingTime)
+// WaitForInstanceStatus polls until the instance's actual_status is target.
+// It fails early if the instance enters a status it cannot recover from. The
+// last instance seen is returned alongside any error.
+func (c *Client) WaitForInstanceStatus(ctx context.Context, id int64, target string) (*Instance, error) {
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	var last Instance
+	var last *Instance
 	for {
 		inst, err := c.ShowInstance(ctx, id)
-		if err != nil {
-			// A throttled tick must not fail an apply that has already rented
-			// a machine; wait for the next tick and try again.
-			var apiErr *APIError
-			if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusTooManyRequests {
-				return last, err
-			}
-		} else {
+		switch {
+		case hasStatus(err, http.StatusTooManyRequests):
+			// Being throttled must not fail an apply that has already rented a machine.
+		case err != nil:
+			return last, err
+		default:
 			last = inst
-
-			status := ""
-			if inst.ActualStatus != nil {
-				status = *inst.ActualStatus
-			}
-
+			status := inst.ActualStatus.GetOrEmpty()
 			if status == target {
 				return inst, nil
 			}
-
 			if isTerminalStatus(status) {
-				msg := ""
-				if inst.StatusMsg != nil && *inst.StatusMsg != "" {
-					msg = ": " + *inst.StatusMsg
+				msg := inst.StatusMsg.GetOrEmpty()
+				if msg != "" {
+					msg = ": " + msg
 				}
 				return inst, fmt.Errorf("instance %d entered status %q and will not reach %q%s", id, status, target, msg)
 			}
@@ -305,8 +199,87 @@ func (c *VastAiClient) WaitForStatus(ctx context.Context, id int64, target strin
 // running on its own; the API documents these as "destroy and retry".
 func isTerminalStatus(status string) bool {
 	switch status {
-	case StatusExited, StatusUnknown, StatusOffline:
+	case InstanceStatusExited, InstanceStatusUnknown, InstanceStatusOffline:
 		return true
 	}
 	return false
+}
+
+// SSHKey is a public key registered on the account. The create and list
+// endpoints return it in different shapes; this is their common form.
+type SSHKey struct {
+	ID        int64
+	UserID    int64
+	PublicKey string
+	CreatedAt time.Time
+}
+
+// CreateSSHKey registers publicKey on the account. The API also adds it to
+// every instance the account currently owns.
+func (c *Client) CreateSSHKey(ctx context.Context, publicKey string) (SSHKey, error) {
+	r, err := c.CreateSSHKeyWithResponse(ctx, CreateSSHKeyJSONRequestBody{SSHKey: publicKey})
+	if err := check(r, err); err != nil {
+		return SSHKey{}, fmt.Errorf("creating ssh key: %w", err)
+	}
+	if r.JSON200 == nil || r.JSON200.Key == nil {
+		return SSHKey{}, fmt.Errorf("creating ssh key: no key in response: %s", r.Body)
+	}
+	k := r.JSON200.Key
+	return SSHKey{
+		ID:        int64(deref(k.ID)),
+		UserID:    int64(deref(k.UserID)),
+		PublicKey: cmp.Or(deref(k.PublicKey), publicKey),
+		CreatedAt: deref(k.CreatedAt),
+	}, nil
+}
+
+// ListSSHKeys returns every key registered on the account.
+func (c *Client) ListSSHKeys(ctx context.Context) ([]SSHKey, error) {
+	r, err := c.GetSSHKeysUserWithResponse(ctx, &GetSSHKeysUserParams{Authorization: c.bearer})
+	switch err := check(r, err); {
+	case errors.Is(err, ErrNotFound):
+		return nil, nil // the API reports "no keys" as 404
+	case err != nil:
+		return nil, fmt.Errorf("listing ssh keys: %w", err)
+	case r.JSON200 == nil:
+		return nil, fmt.Errorf("listing ssh keys: unexpected response: %s", r.Body)
+	}
+	keys := make([]SSHKey, 0, len(*r.JSON200))
+	for _, k := range *r.JSON200 {
+		keys = append(keys, SSHKey{
+			ID:        int64(deref(k.ID)),
+			UserID:    int64(deref(k.UserID)),
+			PublicKey: deref(k.Key),
+			CreatedAt: deref(k.CreatedAt),
+		})
+	}
+	return keys, nil
+}
+
+// UpdateSSHKey replaces the public key stored under id.
+func (c *Client) UpdateSSHKey(ctx context.Context, id int64, publicKey string) error {
+	r, err := c.UpdateSSHKeyWithResponse(ctx, int(id), UpdateSSHKeyJSONRequestBody{SSHKey: publicKey})
+	if err := check(r, err); err != nil {
+		return fmt.Errorf("updating ssh key %d: %w", id, err)
+	}
+	return nil
+}
+
+// DeleteSSHKey removes a key from the account. Deleting a key that no longer
+// exists is not an error.
+func (c *Client) DeleteSSHKey(ctx context.Context, id int64) error {
+	r, err := c.DeleteSSHKeyWithResponse(ctx, id)
+	// A missing key is reported as 400 no_ssh_key rather than 404.
+	if err := check(r, err); err != nil && !errors.Is(err, ErrNotFound) && !hasCode(err, "no_ssh_key") {
+		return fmt.Errorf("deleting ssh key %d: %w", id, err)
+	}
+	return nil
+}
+
+// deref returns the value p points to, or the zero value when p is nil.
+func deref[T any](p *T) (v T) {
+	if p != nil {
+		v = *p
+	}
+	return v
 }

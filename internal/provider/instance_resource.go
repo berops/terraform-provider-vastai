@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"strconv"
 	"terraform-provider-vastai/internal/vastai"
 
@@ -41,7 +40,7 @@ func NewInstanceResource() resource.Resource {
 
 // orderResource is the resource implementation.
 type instanceResource struct {
-	client *vastai.VastAiClient
+	client *vastai.Client
 }
 
 // instanceResourceModel describes the resource data model. It mirrors the
@@ -110,11 +109,22 @@ func stringPtr(v types.String) *string {
 	return v.ValueStringPointer()
 }
 
-func float64Ptr(v types.Float64) *float64 {
+// float32Ptr narrows to float32 because the generated request body types
+// JSON numbers without an explicit format as float32.
+func float32Ptr(v types.Float64) *float32 {
 	if v.IsNull() || v.IsUnknown() {
 		return nil
 	}
-	return v.ValueFloat64Pointer()
+	f := float32(v.ValueFloat64())
+	return &f
+}
+
+func intPtr(v types.Int64) *int {
+	if v.IsNull() || v.IsUnknown() {
+		return nil
+	}
+	i := int(v.ValueInt64())
+	return &i
 }
 
 func boolPtr(v types.Bool) *bool {
@@ -124,15 +134,37 @@ func boolPtr(v types.Bool) *bool {
 	return v.ValueBoolPointer()
 }
 
-func (m *instanceResourceModel) toCreateInstanceRequest(ctx context.Context) vastai.CreateInstanceRequest {
-	req := vastai.CreateInstanceRequest{
-		Image:          stringPtr(m.Image),
+// deref returns the value p points to, or the zero value when p is nil. The
+// generated models use a pointer for every optional field.
+func deref[T any](p *T) (v T) {
+	if p != nil {
+		v = *p
+	}
+	return v
+}
+
+// enumPtr converts a string attribute to one of the generated enum types.
+func enumPtr[E ~string](v types.String) *E {
+	if v.IsNull() || v.IsUnknown() {
+		return nil
+	}
+	e := E(v.ValueString())
+	return &e
+}
+
+func (m *instanceResourceModel) toCreateInstanceRequest(ctx context.Context) (vastai.CreateInstanceJSONRequestBody, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	req := vastai.CreateInstanceJSONRequestBody{
+		// image is required by the API schema; when a template supplies it
+		// the attribute is unknown here and an empty string is sent.
+		Image:          m.Image.ValueString(),
 		TemplateHashID: stringPtr(m.TemplateHashID),
 		Label:          stringPtr(m.Label),
-		Disk:           float64Ptr(m.Disk),
-		Runtype:        stringPtr(m.Runtype),
-		TargetState:    stringPtr(m.TargetState),
-		Price:          float64Ptr(m.Price),
+		Disk:           float32Ptr(m.Disk),
+		Runtype:        enumPtr[vastai.CreateInstanceJSONBodyRuntype](m.Runtype),
+		TargetState:    enumPtr[vastai.CreateInstanceJSONBodyTargetState](m.TargetState),
+		Price:          float32Ptr(m.Price),
 		Env:            stringPtr(m.Env),
 		CancelUnavail:  boolPtr(m.CancelUnavail),
 		VM:             boolPtr(m.VM),
@@ -149,51 +181,64 @@ func (m *instanceResourceModel) toCreateInstanceRequest(ctx context.Context) vas
 
 	if !m.Args.IsNull() && !m.Args.IsUnknown() {
 		var args []string
-		m.Args.ElementsAs(ctx, &args, false)
-		req.Args = args
+		diags.Append(m.Args.ElementsAs(ctx, &args, false)...)
+		req.Args = &args
 	}
 
 	if !m.VolumeInfo.IsNull() && !m.VolumeInfo.IsUnknown() {
 		var vi volumeInfoModel
-		m.VolumeInfo.As(ctx, &vi, basetypes.ObjectAsOptions{
-			//TODO think about the parameters values
-		})
+		diags.Append(m.VolumeInfo.As(ctx, &vi, basetypes.ObjectAsOptions{})...)
+		// The generated body declares volume_info as an anonymous struct, so
+		// it has to be spelled out here to construct it.
+		req.VolumeInfo = &struct {
+			CreateNew *bool   `json:"create_new,omitempty"`
+			MountPath *string `json:"mount_path,omitempty"`
+			Size      *int    `json:"size,omitempty"`
+			VolumeID  *int    `json:"volume_id,omitempty"`
+		}{
+			CreateNew: boolPtr(vi.CreateNew),
+			MountPath: stringPtr(vi.MountPath),
+			Size:      intPtr(vi.Size),
+			VolumeID:  intPtr(vi.VolumeID),
+		}
 	}
 
-	return req
+	return req, diags
 }
 
 // applyInstance copies values from the API response into the computed
 // attributes of the model, leaving configured attributes untouched.
-func (m *instanceResourceModel) applyInstance(ctx context.Context, in vastai.Instance) diag.Diagnostics {
+func (m *instanceResourceModel) applyInstance(ctx context.Context, in *vastai.Instance) diag.Diagnostics {
 	var diags diag.Diagnostics
 
-	m.InstanceID = types.Int64Value(in.ID)
-	m.SSHHost = types.StringValue(in.SSHHost)
-	m.SSHPort = types.Int64Value(int64(in.SSHPort))
-	m.PublicIPAddr = types.StringValue(in.PublicIPAddr)
-	m.JupyterToken = types.StringValue(in.JupyterToken)
-	m.MachineID = types.Int64Value(in.MachineID)
-	m.GPUName = types.StringValue(in.GPUName)
-	m.NumGPUs = types.Int64Value(int64(in.NumGPUs))
-	m.GPUTotalRAM = types.Int64Value(in.GPUTotalRAM)
-	m.Geolocation = types.StringValue(in.Geolocation)
-	m.DPHTotal = types.Float64Value(in.DPHTotal)
-	m.StartDate = types.Float64Value(in.StartDate)
+	m.InstanceID = types.Int64Value(int64(deref(in.ID)))
+	m.SSHHost = types.StringValue(deref(in.SSHHost))
+	m.SSHPort = types.Int64Value(int64(deref(in.SSHPort)))
+	m.PublicIPAddr = types.StringValue(deref(in.PublicIpaddr))
+	m.JupyterToken = types.StringValue(deref(in.JupyterToken))
+	m.MachineID = types.Int64Value(int64(deref(in.MachineID)))
+	m.GPUName = types.StringValue(deref(in.GpuName))
+	m.NumGPUs = types.Int64Value(int64(deref(in.NumGpus)))
+	m.GPUTotalRAM = types.Int64Value(int64(deref(in.GpuTotalram)))
+	m.Geolocation = types.StringValue(deref(in.Geolocation))
+	m.DPHTotal = types.Float64Value(float64(deref(in.DphTotal)))
+	m.StartDate = types.Float64Value(float64(deref(in.StartDate)))
 
 	// Each container port usually has an IPv4 and an IPv6 binding on the same
 	// host port; keep the first one.
-	hostPorts := make(map[string]int64, len(in.Ports))
-	for port, bindings := range in.Ports {
-		if len(bindings) == 0 {
-			continue
+	hostPorts := map[string]int64{}
+	if in.Ports != nil {
+		for port, bindings := range *in.Ports {
+			if len(bindings) == 0 || bindings[0].HostPort == nil {
+				continue
+			}
+			hp, err := strconv.ParseInt(*bindings[0].HostPort, 10, 64)
+			if err != nil {
+				diags.AddError("Unexpected port binding", fmt.Sprintf("host port %q for %s is not a number: %s", *bindings[0].HostPort, port, err))
+				continue
+			}
+			hostPorts[port] = hp
 		}
-		hp, err := strconv.ParseInt(bindings[0].HostPort, 10, 64)
-		if err != nil {
-			diags.AddError("Unexpected port binding", fmt.Sprintf("host port %q for %s is not a number: %s", bindings[0].HostPort, port, err))
-			continue
-		}
-		hostPorts[port] = hp
 	}
 	ports, d := types.MapValueFrom(ctx, types.Int64Type, hostPorts)
 	diags.Append(d...)
@@ -202,16 +247,16 @@ func (m *instanceResourceModel) applyInstance(ctx context.Context, in vastai.Ins
 	// Optional+Computed: only take the API value when the user didn't set one,
 	// otherwise Terraform errors with "inconsistent result after apply".
 	if m.Image.IsUnknown() {
-		m.Image = types.StringValue(in.ImageUUID)
+		m.Image = types.StringValue(deref(in.ImageUUID))
 	}
 	if m.Disk.IsUnknown() {
-		m.Disk = types.Float64Value(in.DiskSpace)
+		m.Disk = types.Float64Value(float64(deref(in.DiskSpace)))
 	}
 	if m.Runtype.IsUnknown() {
-		m.Runtype = types.StringValue(in.ImageRuntype)
+		m.Runtype = types.StringValue(deref(in.ImageRuntype))
 	}
 	if m.TargetState.IsUnknown() {
-		m.TargetState = types.StringValue(in.IntendedStatus)
+		m.TargetState = types.StringValue(deref(in.IntendedStatus))
 	}
 	if m.VM.IsUnknown() {
 		m.VM = types.BoolValue(false)
@@ -514,12 +559,12 @@ func (r *instanceResource) Configure(
 		return
 	}
 
-	client, ok := req.ProviderData.(*vastai.VastAiClient)
+	client, ok := req.ProviderData.(*vastai.Client)
 
 	if !ok {
 		resp.Diagnostics.AddError(
-			"Unexpected Data Source Configure Type",
-			fmt.Sprintf("Expected *hashicups.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			"Unexpected Resource Configure Type",
+			fmt.Sprintf("Expected *vastai.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
 		)
 
 		return
@@ -538,24 +583,24 @@ func (r *instanceResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	reqBody := instance.toCreateInstanceRequest(ctx)
-	clientResp, err := r.client.CreateInstance(ctx, int(instance.ID.ValueInt64()), reqBody)
+	reqBody, diags := instance.toCreateInstanceRequest(ctx)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	contractID, err := r.client.CreateInstance(ctx, instance.ID.ValueInt64(), reqBody)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating an instance", err.Error())
 		return
 	}
 
-	if !clientResp.Success {
-		resp.Diagnostics.AddError("Error creating an instance", "The API reported the request as unsuccessful.")
-		return
-	}
-
-	createdInstance, err := r.client.WaitForStatus(ctx, clientResp.NewContract, vastai.StatusRunning)
+	createdInstance, err := r.client.WaitForInstanceStatus(ctx, contractID, vastai.InstanceStatusRunning)
 	if err != nil {
 		// The instance exists and is billing at this point. Record its ID so
 		// Terraform tracks it (as tainted) instead of leaking it.
 		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), instance.ID)...)
-		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("instance_id"), clientResp.NewContract)...)
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("instance_id"), contractID)...)
 		resp.Diagnostics.AddError("Error waiting for instance to become ready", err.Error())
 		return
 	}
@@ -585,18 +630,12 @@ func (r *instanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 	}
 
 	inst, err := r.client.ShowInstance(ctx, instance.InstanceID.ValueInt64())
-	if err != nil {
-		var apiErr *vastai.APIError
-		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
-			resp.State.RemoveResource(ctx)
-			return
-		}
-		resp.Diagnostics.AddError("Error reading instance", err.Error())
+	if errors.Is(err, vastai.ErrNotFound) {
+		resp.State.RemoveResource(ctx)
 		return
 	}
-	// A destroyed instance may also come back as an empty object rather than a 404.
-	if inst.ID == 0 {
-		resp.State.RemoveResource(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading instance", err.Error())
 		return
 	}
 
