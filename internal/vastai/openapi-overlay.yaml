@@ -1,0 +1,22 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+
+overlay: 1.0.0
+info:
+  title: Local corrections to the upstream Vast.ai OpenAPI document
+  version: 1.0.0
+
+actions:
+  # `GET /api/v0/instances/{id}` (showInstance) returns `extra_env` as a list of
+  # [key, value] pairs, e.g. [["DOG", "CAT"], ["-p 70001:70001", "1"]]
+  # the schema specifies []string instead of [][]string
+  - target: $.components.schemas.Instance.properties.extra_env
+    description: Correct extra_env to a list of [key, value] pairs
+    update:
+      items:
+        type: array
+        items:
+          type: string
+      description: >-
+        Additional environment variables and port mappings, each as a
+        [key, value] pair, e.g. ["-p 70001:70001", "1"].

@@ -90,6 +90,45 @@ func (e CreateInstance400JSONResponseBodyError) Valid() bool {
 	}
 }
 
+// Defines values for SearchOffersJSONBodyType.
+const (
+	SearchOffersJSONBodyTypeBid      SearchOffersJSONBodyType = "bid"
+	SearchOffersJSONBodyTypeOndemand SearchOffersJSONBodyType = "ondemand"
+	SearchOffersJSONBodyTypeReserved SearchOffersJSONBodyType = "reserved"
+)
+
+// Valid indicates whether the value is a known member of the SearchOffersJSONBodyType enum.
+func (e SearchOffersJSONBodyType) Valid() bool {
+	switch e {
+	case SearchOffersJSONBodyTypeBid:
+		return true
+	case SearchOffersJSONBodyTypeOndemand:
+		return true
+	case SearchOffersJSONBodyTypeReserved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ManageInstanceJSONBodyState.
+const (
+	ManageInstanceJSONBodyStateRunning ManageInstanceJSONBodyState = "running"
+	ManageInstanceJSONBodyStateStopped ManageInstanceJSONBodyState = "stopped"
+)
+
+// Valid indicates whether the value is a known member of the ManageInstanceJSONBodyState enum.
+func (e ManageInstanceJSONBodyState) Valid() bool {
+	switch e {
+	case ManageInstanceJSONBodyStateRunning:
+		return true
+	case ManageInstanceJSONBodyStateStopped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateSSHKey400JSONResponseBodyError.
 const (
 	CreateSSHKey400JSONResponseBodyErrorNoSSHKey CreateSSHKey400JSONResponseBodyError = "no_ssh_key"
@@ -201,8 +240,8 @@ type Instance struct {
 	// External Whether the instance is external.
 	External *bool `json:"external,omitempty"`
 
-	// ExtraEnv Additional environment variables.
-	ExtraEnv *[]string `json:"extra_env,omitempty"`
+	// ExtraEnv Additional environment variables and port mappings, each as a [key, value] pair, e.g. ["-p 70001:70001", "1"].
+	ExtraEnv *[][]string `json:"extra_env,omitempty"`
 
 	// FlopsPerDphtotal FLOPS per total DPH.
 	FlopsPerDphtotal *float32 `json:"flops_per_dphtotal,omitempty"`
@@ -394,6 +433,11 @@ type Instance struct {
 	Webpage nullable.Nullable[string] `json:"webpage,omitempty"`
 }
 
+// SimpleBooleanSuccessResponse defines model for SimpleBooleanSuccessResponse.
+type SimpleBooleanSuccessResponse struct {
+	Success *bool `json:"success,omitempty"`
+}
+
 // CreateInstanceJSONBody defines parameters for CreateInstance.
 type CreateInstanceJSONBody struct {
 	// Args Arguments array to passed to the image entrypoint
@@ -493,6 +537,217 @@ type CreateInstanceJSONBodyTargetState string
 // CreateInstance400JSONResponseBodyError defines parameters for CreateInstance.
 type CreateInstance400JSONResponseBodyError string
 
+// SearchOffersJSONBody defines parameters for SearchOffers.
+type SearchOffersJSONBody struct {
+	// AllocatedStorage Storage allocation size in GB for the instance.
+	// This sets the disk size when creating the instance and cannot be changed later.
+	// Default is 8GB.
+	AllocatedStorage *float32 `json:"allocated_storage,omitempty"`
+
+	// BwNvlink NVLink interconnect bandwidth in GB/s. Use when filtering for multi-GPU systems with high-speed NVLink.
+	BwNvlink *map[string]interface{} `json:"bw_nvlink,omitempty"`
+
+	// ComputeCap CUDA compute capability x 100. Use 650 for compute capability 6.5 or 700 for 7.0.
+	ComputeCap *map[string]interface{} `json:"compute_cap,omitempty"`
+
+	// CPUArch Host machine CPU architecture (Default is amd64). Example: {"eq": "amd64"}
+	CPUArch *map[string]interface{} `json:"cpu_arch,omitempty"`
+
+	// CPUCores Number of virtual CPUs
+	CPUCores *map[string]interface{} `json:"cpu_cores,omitempty"`
+
+	// CPUCoresEffective Effective vCPU count for the offer
+	CPUCoresEffective *map[string]interface{} `json:"cpu_cores_effective,omitempty"`
+
+	// CPUGhz CPU clock speed in GHz
+	CPUGhz *map[string]interface{} `json:"cpu_ghz,omitempty"`
+
+	// CPURAM CPU RAM in MB
+	CPURAM *map[string]interface{} `json:"cpu_ram,omitempty"`
+
+	// CudaMaxGood Maximum supported CUDA version
+	CudaMaxGood *map[string]interface{} `json:"cuda_max_good,omitempty"`
+
+	// Datacenter Show only datacenter offers
+	Datacenter *map[string]interface{} `json:"datacenter,omitempty"`
+
+	// DirectPortCount Number of direct ports
+	DirectPortCount *map[string]interface{} `json:"direct_port_count,omitempty"`
+
+	// DiskBw Disk read bandwidth in MB/s
+	DiskBw *map[string]interface{} `json:"disk_bw,omitempty"`
+
+	// DiskSpace Disk storage space in GB
+	DiskSpace *map[string]interface{} `json:"disk_space,omitempty"`
+
+	// Dlperf Deep Learning performance score
+	Dlperf *map[string]interface{} `json:"dlperf,omitempty"`
+
+	// DlperfPerDphtotal DLPerf per dollar per hour
+	DlperfPerDphtotal *map[string]interface{} `json:"dlperf_per_dphtotal,omitempty"`
+
+	// DphTotal Total $/hour rental cost. Example: {"lte": 0.5}
+	DphTotal *map[string]interface{} `json:"dph_total,omitempty"`
+
+	// DriverVersion NVIDIA driver version in the format "XXX.XX.XX"
+	DriverVersion *map[string]interface{} `json:"driver_version,omitempty"`
+
+	// Duration Minimum required rental duration in seconds (the offer must be available for at least this long from now).
+	Duration *map[string]interface{} `json:"duration,omitempty"`
+
+	// External Show external offers in addition to datacenter offers
+	External *map[string]interface{} `json:"external,omitempty"`
+
+	// FlopsPerDphtotal TFLOPs per $/hour
+	FlopsPerDphtotal *map[string]interface{} `json:"flops_per_dphtotal,omitempty"`
+
+	// Geolocation Machine location (two letter country code). Example: {"in": ["US", "CA"]}
+	Geolocation *struct {
+		In *[]string `json:"in,omitempty"`
+	} `json:"geolocation,omitempty"`
+
+	// GpuArch Host machine GPU architecture (e.g. nvidia, amd). Example: {"eq": "nvidia"}
+	GpuArch *map[string]interface{} `json:"gpu_arch,omitempty"`
+
+	// GpuDisplayActive Whether the GPU has an attached display
+	GpuDisplayActive *map[string]interface{} `json:"gpu_display_active,omitempty"`
+
+	// GpuFrac Fraction of the total GPU resources being offered
+	GpuFrac *map[string]interface{} `json:"gpu_frac,omitempty"`
+
+	// GpuMaxPower GPU power limit in watts
+	GpuMaxPower *map[string]interface{} `json:"gpu_max_power,omitempty"`
+
+	// GpuMaxTemp GPU temperature limit in Celsius
+	GpuMaxTemp *map[string]interface{} `json:"gpu_max_temp,omitempty"`
+
+	// GpuMemBw GPU memory bandwidth in GB/s
+	GpuMemBw *map[string]interface{} `json:"gpu_mem_bw,omitempty"`
+
+	// GpuName GPU model name. Example: {"eq": "RTX_4090"} or {"in": ["RTX_3090", "RTX_4090"]}
+	GpuName *struct {
+		In *[]string `json:"in,omitempty"`
+	} `json:"gpu_name,omitempty"`
+
+	// GpuRAM GPU RAM in MB. Example: {"gte": 24000}
+	GpuRAM *map[string]interface{} `json:"gpu_ram,omitempty"`
+
+	// GpuTotalRAM Total GPU RAM across all GPUs in MB
+	GpuTotalRAM *map[string]interface{} `json:"gpu_total_ram,omitempty"`
+
+	// HasAvx CPU supports AVX instruction set
+	HasAvx *map[string]interface{} `json:"has_avx,omitempty"`
+
+	// HostID Host user ID
+	HostID *map[string]interface{} `json:"host_id,omitempty"`
+
+	// ID Offer ID
+	ID *map[string]interface{} `json:"id,omitempty"`
+
+	// InetDown Download bandwidth (MB/s)
+	InetDown *map[string]interface{} `json:"inet_down,omitempty"`
+
+	// InetDownCost Download bandwidth cost ($/GB)
+	InetDownCost *map[string]interface{} `json:"inet_down_cost,omitempty"`
+
+	// InetUp Upload bandwidth (MB/s)
+	InetUp *map[string]interface{} `json:"inet_up,omitempty"`
+
+	// InetUpCost Upload bandwidth cost ($/GB)
+	InetUpCost *map[string]interface{} `json:"inet_up_cost,omitempty"`
+
+	// Limit Max offers to return
+	Limit *int `json:"limit,omitempty"`
+
+	// MachineID Filter by specific host machine ID
+	MachineID *map[string]interface{} `json:"machine_id,omitempty"`
+
+	// MinBid Minimum bid price ($/hour)
+	MinBid *map[string]interface{} `json:"min_bid,omitempty"`
+
+	// MoboName Motherboard name
+	MoboName *map[string]interface{} `json:"mobo_name,omitempty"`
+
+	// NumGpus Number of GPUs. Example: {"gte": 4} or {"in": [1, 2, 4, 8]}
+	NumGpus *struct {
+		In *[]int `json:"in,omitempty"`
+	} `json:"num_gpus,omitempty"`
+
+	// Order List of sort fields and directions.
+	// Each entry should contain two elements:
+	// 1. The field name to sort by (string)
+	// 2. The sort direction ("asc" or "desc")
+	Order *[][]string `json:"order,omitempty"`
+
+	// OsVersion Host machine Ubuntu OS version
+	OsVersion *map[string]interface{} `json:"os_version,omitempty"`
+
+	// PciGen PCIe generation
+	PciGen *map[string]interface{} `json:"pci_gen,omitempty"`
+
+	// PcieBw PCIe bandwidth (CPU to GPU)
+	PcieBw *map[string]interface{} `json:"pcie_bw,omitempty"`
+
+	// Reliability Machine reliability score (0-1). Example: {"gte": 0.99}
+	Reliability *map[string]interface{} `json:"reliability,omitempty"`
+
+	// Rentable Whether machine is rentable
+	Rentable *struct {
+		Eq *bool `json:"eq,omitempty"`
+	} `json:"rentable,omitempty"`
+
+	// Rented When set to true, include offers where the calling user already has rented GPUs.
+	// This is useful for finding offers on machines you're already renting.
+	Rented *struct {
+		Eq *bool `json:"eq,omitempty"`
+	} `json:"rented,omitempty"`
+
+	// StaticIP Whether the IP address is static/stable
+	StaticIP *map[string]interface{} `json:"static_ip,omitempty"`
+
+	// StorageCost Storage cost in $/GB/month
+	StorageCost *map[string]interface{} `json:"storage_cost,omitempty"`
+
+	// TotalFlops Total theoretical GPU compute performance (TFLOPs) across all GPUs.
+	TotalFlops *map[string]interface{} `json:"total_flops,omitempty"`
+
+	// Type Instance type for the offer. Affects pricing calculation.
+	//
+	// - **ondemand**: Fixed pricing based on listed rates. Default.
+	// - **bid** (interruptible): Uses minimum bid price. Lower cost but may be interrupted if outbid.
+	// - **reserved**: Reserved instance pricing.
+	Type *SearchOffersJSONBodyType `json:"type,omitempty"`
+
+	// UbuntuVersion Host machine Ubuntu OS version (alias for os_version)
+	UbuntuVersion *map[string]interface{} `json:"ubuntu_version,omitempty"`
+
+	// Verification Machine verification status string (verified, deverified, unverified). Example: {"eq": "verified"}
+	Verification *map[string]interface{} `json:"verification,omitempty"`
+
+	// Verified Machine verification status
+	Verified *struct {
+		Eq *bool `json:"eq,omitempty"`
+	} `json:"verified,omitempty"`
+
+	// VmsEnabled Whether the machine is a VM instance
+	VmsEnabled *map[string]interface{} `json:"vms_enabled,omitempty"`
+}
+
+// SearchOffersJSONBodyType defines parameters for SearchOffers.
+type SearchOffersJSONBodyType string
+
+// ManageInstanceJSONBody defines parameters for ManageInstance.
+type ManageInstanceJSONBody struct {
+	// Label Text label to assign to the instance (optional)
+	Label *string `json:"label,omitempty"`
+
+	// State Change instance state (optional)
+	State *ManageInstanceJSONBodyState `json:"state,omitempty"`
+}
+
+// ManageInstanceJSONBodyState defines parameters for ManageInstance.
+type ManageInstanceJSONBodyState string
+
 // GetSSHKeysUserParams defines parameters for GetSSHKeysUser.
 type GetSSHKeysUserParams struct {
 	// Authorization Bearer token for user authentication.
@@ -516,6 +771,12 @@ type UpdateSSHKeyJSONBody struct {
 
 // CreateInstanceJSONRequestBody defines body for CreateInstance for application/json ContentType.
 type CreateInstanceJSONRequestBody CreateInstanceJSONBody
+
+// SearchOffersJSONRequestBody defines body for SearchOffers for application/json ContentType.
+type SearchOffersJSONRequestBody SearchOffersJSONBody
+
+// ManageInstanceJSONRequestBody defines body for ManageInstance for application/json ContentType.
+type ManageInstanceJSONRequestBody ManageInstanceJSONBody
 
 // CreateSSHKeyJSONRequestBody defines body for CreateSSHKey for application/json ContentType.
 type CreateSSHKeyJSONRequestBody CreateSSHKeyJSONBody
@@ -639,6 +900,58 @@ type ClientInterface interface {
 	// Corresponds with PUT /api/v0/asks/{id} (the `CreateInstance` operationId).
 	CreateInstance(ctx context.Context, id int, body CreateInstanceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// SearchOffersWithBody search offers
+	//
+	// Search for available GPU machine offers with advanced filtering and sorting.
+	//
+	// Each filter parameter (such as `verified`, `gpu_name`, `num_gpus`, etc.) should be an object specifying the operator and value you want to match.
+	//
+	// **Filter operators:**
+	//
+	// | Operator | Meaning                | Example                        |
+	// |:---------|:-----------------------|:-------------------------------|
+	// | `eq`     | Equal to               | `{ "eq": true }`               |
+	// | `neq`    | Not equal to           | `{ "neq": false }`             |
+	// | `gt`     | Greater than           | `{ "gt": 0.99 }`               |
+	// | `lt`     | Less than              | `{ "lt": 10000 }`              |
+	// | `gte`    | Greater than or equal  | `{ "gte": 4 }`                 |
+	// | `lte`    | Less than or equal     | `{ "lte": 8 }`                 |
+	// | `in`     | Value is in a list     | `{ "in": ["RTX_3090", "RTX_4090"] }` |
+	// | `notin`  | Value is not in a list | `{ "notin": ["TW", "SE"] }`    |
+	//
+	// CLI Usage: `vastai search offers 'reliability > 0.99 num_gpus>=4' --order=dph_total`
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v0/bundles (the `SearchOffers` operationId).
+	SearchOffersWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SearchOffers search offers
+	//
+	// Search for available GPU machine offers with advanced filtering and sorting.
+	//
+	// Each filter parameter (such as `verified`, `gpu_name`, `num_gpus`, etc.) should be an object specifying the operator and value you want to match.
+	//
+	// **Filter operators:**
+	//
+	// | Operator | Meaning                | Example                        |
+	// |:---------|:-----------------------|:-------------------------------|
+	// | `eq`     | Equal to               | `{ "eq": true }`               |
+	// | `neq`    | Not equal to           | `{ "neq": false }`             |
+	// | `gt`     | Greater than           | `{ "gt": 0.99 }`               |
+	// | `lt`     | Less than              | `{ "lt": 10000 }`              |
+	// | `gte`    | Greater than or equal  | `{ "gte": 4 }`                 |
+	// | `lte`    | Less than or equal     | `{ "lte": 8 }`                 |
+	// | `in`     | Value is in a list     | `{ "in": ["RTX_3090", "RTX_4090"] }` |
+	// | `notin`  | Value is not in a list | `{ "notin": ["TW", "SE"] }`    |
+	//
+	// CLI Usage: `vastai search offers 'reliability > 0.99 num_gpus>=4' --order=dph_total`
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v0/bundles (the `SearchOffers` operationId).
+	SearchOffers(ctx context.Context, body SearchOffersJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DestroyInstance destroy instance
 	//
 	// Destroys/deletes an instance permanently. This is irreversible and will delete all data.
@@ -656,6 +969,34 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /api/v0/instances/{id} (the `ShowInstance` operationId).
 	ShowInstance(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ManageInstanceWithBody manage instance
+	//
+	// Manage instance state and labels. The operation is determined by the request body parameters.
+	//
+	// CLI Usage:
+	// - To stop: `vastai stop instance <id>`
+	// - To start: `vastai start instance <id>`
+	// - To label: `vastai label instance <id> <label>`
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /api/v0/instances/{id} (the `ManageInstance` operationId).
+	ManageInstanceWithBody(ctx context.Context, id int, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ManageInstance manage instance
+	//
+	// Manage instance state and labels. The operation is determined by the request body parameters.
+	//
+	// CLI Usage:
+	// - To stop: `vastai stop instance <id>`
+	// - To start: `vastai start instance <id>`
+	// - To label: `vastai label instance <id> <label>`
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /api/v0/instances/{id} (the `ManageInstance` operationId).
+	ManageInstance(ctx context.Context, id int, body ManageInstanceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ShowSSHKeys show ssh-keys
 	//
@@ -793,6 +1134,78 @@ func (c *VastAiClient) CreateInstance(ctx context.Context, id int, body CreateIn
 	return c.Client.Do(req)
 }
 
+// SearchOffersWithBody search offers
+//
+// Search for available GPU machine offers with advanced filtering and sorting.
+//
+// Each filter parameter (such as `verified`, `gpu_name`, `num_gpus`, etc.) should be an object specifying the operator and value you want to match.
+//
+// **Filter operators:**
+//
+// | Operator | Meaning                | Example                        |
+// |:---------|:-----------------------|:-------------------------------|
+// | `eq`     | Equal to               | `{ "eq": true }`               |
+// | `neq`    | Not equal to           | `{ "neq": false }`             |
+// | `gt`     | Greater than           | `{ "gt": 0.99 }`               |
+// | `lt`     | Less than              | `{ "lt": 10000 }`              |
+// | `gte`    | Greater than or equal  | `{ "gte": 4 }`                 |
+// | `lte`    | Less than or equal     | `{ "lte": 8 }`                 |
+// | `in`     | Value is in a list     | `{ "in": ["RTX_3090", "RTX_4090"] }` |
+// | `notin`  | Value is not in a list | `{ "notin": ["TW", "SE"] }`    |
+//
+// CLI Usage: `vastai search offers 'reliability > 0.99 num_gpus>=4' --order=dph_total`
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v0/bundles (the `SearchOffers` operationId).
+func (c *VastAiClient) SearchOffersWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSearchOffersRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SearchOffers search offers
+//
+// Search for available GPU machine offers with advanced filtering and sorting.
+//
+// Each filter parameter (such as `verified`, `gpu_name`, `num_gpus`, etc.) should be an object specifying the operator and value you want to match.
+//
+// **Filter operators:**
+//
+// | Operator | Meaning                | Example                        |
+// |:---------|:-----------------------|:-------------------------------|
+// | `eq`     | Equal to               | `{ "eq": true }`               |
+// | `neq`    | Not equal to           | `{ "neq": false }`             |
+// | `gt`     | Greater than           | `{ "gt": 0.99 }`               |
+// | `lt`     | Less than              | `{ "lt": 10000 }`              |
+// | `gte`    | Greater than or equal  | `{ "gte": 4 }`                 |
+// | `lte`    | Less than or equal     | `{ "lte": 8 }`                 |
+// | `in`     | Value is in a list     | `{ "in": ["RTX_3090", "RTX_4090"] }` |
+// | `notin`  | Value is not in a list | `{ "notin": ["TW", "SE"] }`    |
+//
+// CLI Usage: `vastai search offers 'reliability > 0.99 num_gpus>=4' --order=dph_total`
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v0/bundles (the `SearchOffers` operationId).
+func (c *VastAiClient) SearchOffers(ctx context.Context, body SearchOffersJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSearchOffersRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // DestroyInstance destroy instance
 //
 // Destroys/deletes an instance permanently. This is irreversible and will delete all data.
@@ -821,6 +1234,54 @@ func (c *VastAiClient) DestroyInstance(ctx context.Context, id int, reqEditors .
 // Corresponds with GET /api/v0/instances/{id} (the `ShowInstance` operationId).
 func (c *VastAiClient) ShowInstance(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewShowInstanceRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ManageInstanceWithBody manage instance
+//
+// Manage instance state and labels. The operation is determined by the request body parameters.
+//
+// CLI Usage:
+// - To stop: `vastai stop instance <id>`
+// - To start: `vastai start instance <id>`
+// - To label: `vastai label instance <id> <label>`
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /api/v0/instances/{id} (the `ManageInstance` operationId).
+func (c *VastAiClient) ManageInstanceWithBody(ctx context.Context, id int, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewManageInstanceRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ManageInstance manage instance
+//
+// Manage instance state and labels. The operation is determined by the request body parameters.
+//
+// CLI Usage:
+// - To stop: `vastai stop instance <id>`
+// - To start: `vastai start instance <id>`
+// - To label: `vastai label instance <id> <label>`
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /api/v0/instances/{id} (the `ManageInstance` operationId).
+func (c *VastAiClient) ManageInstance(ctx context.Context, id int, body ManageInstanceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewManageInstanceRequest(c.Server, id, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1021,6 +1482,46 @@ func NewCreateInstanceRequestWithBody(server string, id int, contentType string,
 	return req, nil
 }
 
+// NewSearchOffersRequest calls the generic SearchOffers builder with application/json body
+func NewSearchOffersRequest(server string, body SearchOffersJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSearchOffersRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewSearchOffersRequestWithBody constructs an http.Request for the SearchOffers method, with any body, and a specified content type
+func NewSearchOffersRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v0/bundles")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewDestroyInstanceRequest constructs an http.Request for the DestroyInstance method
 func NewDestroyInstanceRequest(server string, id int) (*http.Request, error) {
 	var err error
@@ -1085,6 +1586,53 @@ func NewShowInstanceRequest(server string, id int) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewManageInstanceRequest calls the generic ManageInstance builder with application/json body
+func NewManageInstanceRequest(server string, id int, body ManageInstanceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewManageInstanceRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewManageInstanceRequestWithBody constructs an http.Request for the ManageInstance method, with any body, and a specified content type
+func NewManageInstanceRequestWithBody(server string, id int, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v0/instances/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -1370,6 +1918,58 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /api/v0/asks/{id} (the `CreateInstance` operationId).
 	CreateInstanceWithResponse(ctx context.Context, id int, body CreateInstanceJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateInstanceResponse, error)
 
+	// SearchOffersWithBodyWithResponse search offers
+	//
+	// Search for available GPU machine offers with advanced filtering and sorting.
+	//
+	// Each filter parameter (such as `verified`, `gpu_name`, `num_gpus`, etc.) should be an object specifying the operator and value you want to match.
+	//
+	// **Filter operators:**
+	//
+	// | Operator | Meaning                | Example                        |
+	// |:---------|:-----------------------|:-------------------------------|
+	// | `eq`     | Equal to               | `{ "eq": true }`               |
+	// | `neq`    | Not equal to           | `{ "neq": false }`             |
+	// | `gt`     | Greater than           | `{ "gt": 0.99 }`               |
+	// | `lt`     | Less than              | `{ "lt": 10000 }`              |
+	// | `gte`    | Greater than or equal  | `{ "gte": 4 }`                 |
+	// | `lte`    | Less than or equal     | `{ "lte": 8 }`                 |
+	// | `in`     | Value is in a list     | `{ "in": ["RTX_3090", "RTX_4090"] }` |
+	// | `notin`  | Value is not in a list | `{ "notin": ["TW", "SE"] }`    |
+	//
+	// CLI Usage: `vastai search offers 'reliability > 0.99 num_gpus>=4' --order=dph_total`
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v0/bundles (the `SearchOffers` operationId).
+	SearchOffersWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SearchOffersResponse, error)
+
+	// SearchOffersWithResponse search offers
+	//
+	// Search for available GPU machine offers with advanced filtering and sorting.
+	//
+	// Each filter parameter (such as `verified`, `gpu_name`, `num_gpus`, etc.) should be an object specifying the operator and value you want to match.
+	//
+	// **Filter operators:**
+	//
+	// | Operator | Meaning                | Example                        |
+	// |:---------|:-----------------------|:-------------------------------|
+	// | `eq`     | Equal to               | `{ "eq": true }`               |
+	// | `neq`    | Not equal to           | `{ "neq": false }`             |
+	// | `gt`     | Greater than           | `{ "gt": 0.99 }`               |
+	// | `lt`     | Less than              | `{ "lt": 10000 }`              |
+	// | `gte`    | Greater than or equal  | `{ "gte": 4 }`                 |
+	// | `lte`    | Less than or equal     | `{ "lte": 8 }`                 |
+	// | `in`     | Value is in a list     | `{ "in": ["RTX_3090", "RTX_4090"] }` |
+	// | `notin`  | Value is not in a list | `{ "notin": ["TW", "SE"] }`    |
+	//
+	// CLI Usage: `vastai search offers 'reliability > 0.99 num_gpus>=4' --order=dph_total`
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v0/bundles (the `SearchOffers` operationId).
+	SearchOffersWithResponse(ctx context.Context, body SearchOffersJSONRequestBody, reqEditors ...RequestEditorFn) (*SearchOffersResponse, error)
+
 	// DestroyInstanceWithResponse destroy instance
 	//
 	// Destroys/deletes an instance permanently. This is irreversible and will delete all data.
@@ -1391,6 +1991,34 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /api/v0/instances/{id} (the `ShowInstance` operationId).
 	ShowInstanceWithResponse(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*ShowInstanceResponse, error)
+
+	// ManageInstanceWithBodyWithResponse manage instance
+	//
+	// Manage instance state and labels. The operation is determined by the request body parameters.
+	//
+	// CLI Usage:
+	// - To stop: `vastai stop instance <id>`
+	// - To start: `vastai start instance <id>`
+	// - To label: `vastai label instance <id> <label>`
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/v0/instances/{id} (the `ManageInstance` operationId).
+	ManageInstanceWithBodyWithResponse(ctx context.Context, id int, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ManageInstanceResponse, error)
+
+	// ManageInstanceWithResponse manage instance
+	//
+	// Manage instance state and labels. The operation is determined by the request body parameters.
+	//
+	// CLI Usage:
+	// - To stop: `vastai stop instance <id>`
+	// - To start: `vastai start instance <id>`
+	// - To label: `vastai label instance <id> <label>`
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/v0/instances/{id} (the `ManageInstance` operationId).
+	ManageInstanceWithResponse(ctx context.Context, id int, body ManageInstanceJSONRequestBody, reqEditors ...RequestEditorFn) (*ManageInstanceResponse, error)
 
 	// ShowSSHKeysWithResponse show ssh-keys
 	//
@@ -1611,6 +2239,77 @@ func (r CreateInstanceResponse) ContentType() string {
 	return ""
 }
 
+type SearchOffersResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *struct {
+		Offers *[]map[string]interface{} `json:"offers,omitempty"`
+	}
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Error *string `json:"error,omitempty"`
+		Msg   *string `json:"msg,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Error *string `json:"error,omitempty"`
+		Msg   *string `json:"msg,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SearchOffersResponse) GetJSON200() *struct {
+	Offers *[]map[string]interface{} `json:"offers,omitempty"`
+} {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r SearchOffersResponse) GetJSON400() *struct {
+	Error *string `json:"error,omitempty"`
+	Msg   *string `json:"msg,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r SearchOffersResponse) GetJSON404() *struct {
+	Error *string `json:"error,omitempty"`
+	Msg   *string `json:"msg,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r SearchOffersResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SearchOffersResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SearchOffersResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SearchOffersResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type DestroyInstanceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1775,6 +2474,79 @@ func (r ShowInstanceResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ShowInstanceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ManageInstanceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SimpleBooleanSuccessResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Error
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *struct {
+		Detail *string `json:"detail,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ManageInstanceResponse) GetJSON200() *SimpleBooleanSuccessResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ManageInstanceResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ManageInstanceResponse) GetJSON401() *Error {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ManageInstanceResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r ManageInstanceResponse) GetJSON429() *struct {
+	Detail *string `json:"detail,omitempty"`
+} {
+	return r.JSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r ManageInstanceResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ManageInstanceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ManageInstanceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ManageInstanceResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -2207,6 +2979,70 @@ func (c *ClientWithResponses) CreateInstanceWithResponse(ctx context.Context, id
 	return ParseCreateInstanceResponse(rsp)
 }
 
+// SearchOffersWithBodyWithResponse search offers
+//
+// Search for available GPU machine offers with advanced filtering and sorting.
+//
+// Each filter parameter (such as `verified`, `gpu_name`, `num_gpus`, etc.) should be an object specifying the operator and value you want to match.
+//
+// **Filter operators:**
+//
+// | Operator | Meaning                | Example                        |
+// |:---------|:-----------------------|:-------------------------------|
+// | `eq`     | Equal to               | `{ "eq": true }`               |
+// | `neq`    | Not equal to           | `{ "neq": false }`             |
+// | `gt`     | Greater than           | `{ "gt": 0.99 }`               |
+// | `lt`     | Less than              | `{ "lt": 10000 }`              |
+// | `gte`    | Greater than or equal  | `{ "gte": 4 }`                 |
+// | `lte`    | Less than or equal     | `{ "lte": 8 }`                 |
+// | `in`     | Value is in a list     | `{ "in": ["RTX_3090", "RTX_4090"] }` |
+// | `notin`  | Value is not in a list | `{ "notin": ["TW", "SE"] }`    |
+//
+// CLI Usage: `vastai search offers 'reliability > 0.99 num_gpus>=4' --order=dph_total`
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v0/bundles (the `SearchOffers` operationId).
+func (c *ClientWithResponses) SearchOffersWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SearchOffersResponse, error) {
+	rsp, err := c.SearchOffersWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSearchOffersResponse(rsp)
+}
+
+// SearchOffersWithResponse search offers
+//
+// Search for available GPU machine offers with advanced filtering and sorting.
+//
+// Each filter parameter (such as `verified`, `gpu_name`, `num_gpus`, etc.) should be an object specifying the operator and value you want to match.
+//
+// **Filter operators:**
+//
+// | Operator | Meaning                | Example                        |
+// |:---------|:-----------------------|:-------------------------------|
+// | `eq`     | Equal to               | `{ "eq": true }`               |
+// | `neq`    | Not equal to           | `{ "neq": false }`             |
+// | `gt`     | Greater than           | `{ "gt": 0.99 }`               |
+// | `lt`     | Less than              | `{ "lt": 10000 }`              |
+// | `gte`    | Greater than or equal  | `{ "gte": 4 }`                 |
+// | `lte`    | Less than or equal     | `{ "lte": 8 }`                 |
+// | `in`     | Value is in a list     | `{ "in": ["RTX_3090", "RTX_4090"] }` |
+// | `notin`  | Value is not in a list | `{ "notin": ["TW", "SE"] }`    |
+//
+// CLI Usage: `vastai search offers 'reliability > 0.99 num_gpus>=4' --order=dph_total`
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v0/bundles (the `SearchOffers` operationId).
+func (c *ClientWithResponses) SearchOffersWithResponse(ctx context.Context, body SearchOffersJSONRequestBody, reqEditors ...RequestEditorFn) (*SearchOffersResponse, error) {
+	rsp, err := c.SearchOffers(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSearchOffersResponse(rsp)
+}
+
 // DestroyInstanceWithResponse destroy instance
 //
 // Destroys/deletes an instance permanently. This is irreversible and will delete all data.
@@ -2239,6 +3075,46 @@ func (c *ClientWithResponses) ShowInstanceWithResponse(ctx context.Context, id i
 		return nil, err
 	}
 	return ParseShowInstanceResponse(rsp)
+}
+
+// ManageInstanceWithBodyWithResponse manage instance
+//
+// Manage instance state and labels. The operation is determined by the request body parameters.
+//
+// CLI Usage:
+// - To stop: `vastai stop instance <id>`
+// - To start: `vastai start instance <id>`
+// - To label: `vastai label instance <id> <label>`
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/v0/instances/{id} (the `ManageInstance` operationId).
+func (c *ClientWithResponses) ManageInstanceWithBodyWithResponse(ctx context.Context, id int, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ManageInstanceResponse, error) {
+	rsp, err := c.ManageInstanceWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseManageInstanceResponse(rsp)
+}
+
+// ManageInstanceWithResponse manage instance
+//
+// Manage instance state and labels. The operation is determined by the request body parameters.
+//
+// CLI Usage:
+// - To stop: `vastai stop instance <id>`
+// - To start: `vastai start instance <id>`
+// - To label: `vastai label instance <id> <label>`
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/v0/instances/{id} (the `ManageInstance` operationId).
+func (c *ClientWithResponses) ManageInstanceWithResponse(ctx context.Context, id int, body ManageInstanceJSONRequestBody, reqEditors ...RequestEditorFn) (*ManageInstanceResponse, error) {
+	rsp, err := c.ManageInstance(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseManageInstanceResponse(rsp)
 }
 
 // ShowSSHKeysWithResponse show ssh-keys
@@ -2458,6 +3334,54 @@ func ParseCreateInstanceResponse(rsp *http.Response) (*CreateInstanceResponse, e
 	return response, nil
 }
 
+// ParseSearchOffersResponse parses an HTTP response from a SearchOffersWithResponse call
+func ParseSearchOffersResponse(rsp *http.Response) (*SearchOffersResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SearchOffersResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest struct {
+			Offers *[]map[string]interface{} `json:"offers,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Error *string `json:"error,omitempty"`
+			Msg   *string `json:"msg,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Error *string `json:"error,omitempty"`
+			Msg   *string `json:"msg,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDestroyInstanceResponse parses an HTTP response from a DestroyInstanceWithResponse call
 func ParseDestroyInstanceResponse(rsp *http.Response) (*DestroyInstanceResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -2560,6 +3484,62 @@ func ParseShowInstanceResponse(rsp *http.Response) (*ShowInstanceResponse, error
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseManageInstanceResponse parses an HTTP response from a ManageInstanceWithResponse call
+func ParseManageInstanceResponse(rsp *http.Response) (*ManageInstanceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ManageInstanceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SimpleBooleanSuccessResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest struct {

@@ -1,4 +1,4 @@
-// Copyright IBM Corp. 2021, 2026
+// Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
 package provider
@@ -27,28 +27,19 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
-// Ensure the implementation satisfies the expected interfaces.
 var (
 	_ resource.Resource              = &instanceResource{}
 	_ resource.ResourceWithConfigure = &instanceResource{}
 )
 
-// NewInstanceResource is a helper function to simplify the provider implementation.
 func NewInstanceResource() resource.Resource {
 	return &instanceResource{}
 }
 
-// orderResource is the resource implementation.
 type instanceResource struct {
 	client *vastai.Client
 }
 
-// instanceResourceModel describes the resource data model. It mirrors the
-// request body of PUT /api/v0/asks/{id} (create instance).
-// instanceResourceModel describes the resource data model. Configurable
-// attributes mirror the request body of PUT /api/v0/asks/{id} (create
-// instance); computed attributes are populated from GET /api/v0/instances/{id}
-// (show instance).
 type instanceResourceModel struct {
 	// --- Configurable (create instance request) ---
 	ID             types.Int64   `tfsdk:"id"`
@@ -58,21 +49,23 @@ type instanceResourceModel struct {
 	Disk           types.Float64 `tfsdk:"disk"`
 	Runtype        types.String  `tfsdk:"runtype"`
 	TargetState    types.String  `tfsdk:"target_state"`
-	Price          types.Float64 `tfsdk:"price"`
-	Env            types.String  `tfsdk:"env"`
-	CancelUnavail  types.Bool    `tfsdk:"cancel_unavail"`
-	VM             types.Bool    `tfsdk:"vm"`
-	Onstart        types.String  `tfsdk:"onstart"`
-	Args           types.List    `tfsdk:"args"`
-	ArgsStr        types.String  `tfsdk:"args_str"`
-	UseJupyterLab  types.Bool    `tfsdk:"use_jupyter_lab"`
-	JupyterDir     types.String  `tfsdk:"jupyter_dir"`
-	PythonUTF8     types.Bool    `tfsdk:"python_utf8"`
-	LangUTF8       types.Bool    `tfsdk:"lang_utf8"`
-	Force          types.Bool    `tfsdk:"force"`
-	User           types.String  `tfsdk:"user"`
-	ImageLogin     types.String  `tfsdk:"image_login"`
-	VolumeInfo     types.Object  `tfsdk:"volume_info"`
+	// attribute price is applicable only to interruptible instance
+	// we do not care about it right now, it simplifies Udpate function
+	// Price          types.Float64 `tfsdk:"price"`
+	Env           types.String `tfsdk:"env"`
+	CancelUnavail types.Bool   `tfsdk:"cancel_unavail"`
+	VM            types.Bool   `tfsdk:"vm"`
+	Onstart       types.String `tfsdk:"onstart"`
+	Args          types.List   `tfsdk:"args"`
+	ArgsStr       types.String `tfsdk:"args_str"`
+	UseJupyterLab types.Bool   `tfsdk:"use_jupyter_lab"`
+	JupyterDir    types.String `tfsdk:"jupyter_dir"`
+	PythonUTF8    types.Bool   `tfsdk:"python_utf8"`
+	LangUTF8      types.Bool   `tfsdk:"lang_utf8"`
+	Force         types.Bool   `tfsdk:"force"`
+	User          types.String `tfsdk:"user"`
+	ImageLogin    types.String `tfsdk:"image_login"`
+	VolumeInfo    types.Object `tfsdk:"volume_info"`
 
 	// --- Computed (show instance response) ---
 	InstanceID   types.Int64   `tfsdk:"instance_id"`
@@ -98,26 +91,12 @@ type volumeInfoModel struct {
 	MountPath types.String `tfsdk:"mount_path"`
 }
 
-// Optional+Computed attributes are unknown (not null) in the plan when the
-// user leaves them unset, and the framework's Value*Pointer helpers return a
-// pointer to the zero value for unknowns. These variants return nil instead so
-// the field is omitted from the request.
-func stringPtr(v types.String) *string {
-	if v.IsNull() || v.IsUnknown() {
-		return nil
-	}
-	return v.ValueStringPointer()
-}
-
-// float32Ptr narrows to float32 because the generated request body types
-// JSON numbers without an explicit format as float32.
-func float32Ptr(v types.Float64) *float32 {
-	if v.IsNull() || v.IsUnknown() {
-		return nil
-	}
-	f := float32(v.ValueFloat64())
-	return &f
-}
+// The generated request bodies use *int and enum types where the framework
+// offers *int64 and *string, so these convert. They also return nil for
+// unknown values: Optional+Computed attributes are unknown (not null) in the
+// plan when left unset, and the framework's Value*Pointer getters would return
+// a pointer to the zero value for them. Attributes that are only Optional are
+// always null or known at apply time and use the getters directly.
 
 func intPtr(v types.Int64) *int {
 	if v.IsNull() || v.IsUnknown() {
@@ -125,13 +104,6 @@ func intPtr(v types.Int64) *int {
 	}
 	i := int(v.ValueInt64())
 	return &i
-}
-
-func boolPtr(v types.Bool) *bool {
-	if v.IsNull() || v.IsUnknown() {
-		return nil
-	}
-	return v.ValueBoolPointer()
 }
 
 // deref returns the value p points to, or the zero value when p is nil. The
@@ -159,24 +131,30 @@ func (m *instanceResourceModel) toCreateInstanceRequest(ctx context.Context) (va
 		// image is required by the API schema; when a template supplies it
 		// the attribute is unknown here and an empty string is sent.
 		Image:          m.Image.ValueString(),
-		TemplateHashID: stringPtr(m.TemplateHashID),
-		Label:          stringPtr(m.Label),
-		Disk:           float32Ptr(m.Disk),
+		TemplateHashID: m.TemplateHashID.ValueStringPointer(),
+		Label:          m.Label.ValueStringPointer(),
 		Runtype:        enumPtr[vastai.CreateInstanceJSONBodyRuntype](m.Runtype),
 		TargetState:    enumPtr[vastai.CreateInstanceJSONBodyTargetState](m.TargetState),
-		Price:          float32Ptr(m.Price),
-		Env:            stringPtr(m.Env),
-		CancelUnavail:  boolPtr(m.CancelUnavail),
-		VM:             boolPtr(m.VM),
-		Onstart:        stringPtr(m.Onstart),
-		ArgsStr:        stringPtr(m.ArgsStr),
-		UseJupyterLab:  boolPtr(m.UseJupyterLab),
-		JupyterDir:     stringPtr(m.JupyterDir),
-		PythonUTF8:     boolPtr(m.PythonUTF8),
-		LangUTF8:       boolPtr(m.LangUTF8),
-		Force:          boolPtr(m.Force),
-		User:           stringPtr(m.User),
-		ImageLogin:     stringPtr(m.ImageLogin),
+		// Price:          m.Price.ValueFloat64Pointer(),
+		Env:           m.Env.ValueStringPointer(),
+		CancelUnavail: m.CancelUnavail.ValueBoolPointer(),
+		Onstart:       m.Onstart.ValueStringPointer(),
+		ArgsStr:       m.ArgsStr.ValueStringPointer(),
+		UseJupyterLab: m.UseJupyterLab.ValueBoolPointer(),
+		JupyterDir:    m.JupyterDir.ValueStringPointer(),
+		PythonUTF8:    m.PythonUTF8.ValueBoolPointer(),
+		LangUTF8:      m.LangUTF8.ValueBoolPointer(),
+		Force:         m.Force.ValueBoolPointer(),
+		User:          m.User.ValueStringPointer(),
+		ImageLogin:    m.ImageLogin.ValueStringPointer(),
+		VM:            m.VM.ValueBoolPointer(),
+	}
+
+	// disk is Optional+Computed, so it is unknown rather than null when unset.
+	// The generated body types JSON numbers without a format as float32.
+	if !m.Disk.IsUnknown() && !m.Disk.IsNull() {
+		disk := float32(m.Disk.ValueFloat64())
+		req.Disk = &disk
 	}
 
 	if !m.Args.IsNull() && !m.Args.IsUnknown() {
@@ -196,8 +174,8 @@ func (m *instanceResourceModel) toCreateInstanceRequest(ctx context.Context) (va
 			Size      *int    `json:"size,omitempty"`
 			VolumeID  *int    `json:"volume_id,omitempty"`
 		}{
-			CreateNew: boolPtr(vi.CreateNew),
-			MountPath: stringPtr(vi.MountPath),
+			CreateNew: vi.CreateNew.ValueBoolPointer(),
+			MountPath: vi.MountPath.ValueStringPointer(),
 			Size:      intPtr(vi.Size),
 			VolumeID:  intPtr(vi.VolumeID),
 		}
@@ -258,40 +236,23 @@ func (m *instanceResourceModel) applyInstance(ctx context.Context, in *vastai.In
 	if m.TargetState.IsUnknown() {
 		m.TargetState = types.StringValue(deref(in.IntendedStatus))
 	}
-	if m.VM.IsUnknown() {
-		m.VM = types.BoolValue(false)
-	}
 
 	return diags
 }
 
-// Metadata returns the resource type name.
 func (r *instanceResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_instance"
 }
 
-// Schema defines the schema for the resource.
 func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Creates a Vast.ai instance by accepting an offer (\"ask\") from a provider. " +
-			"Use the search offers endpoint or data source to discover available machines. " +
-			"When `template_hash_id` is set, template defaults are merged with (or overridden by) the " +
-			"attributes set here: scalar attributes override the template, while `env` is merged by key " +
-			"with the value set here winning on conflicts.",
-
+		MarkdownDescription: "Creates a Vast.ai instance by accepting an offer.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.Int64Attribute{
 				MarkdownDescription: "ID of the offer (ask) to accept. Renting a different offer means renting a different machine, so changing this forces a new instance.",
 				Required:            true,
 				PlanModifiers: []planmodifier.Int64{
 					int64planmodifier.RequiresReplace(),
-				},
-			},
-			"instance_id": schema.Int64Attribute{
-				MarkdownDescription: "ID of the instance contract created from the offer, returned by the API as `new_contract`. This is the ID used to manage the instance after creation.",
-				Computed:            true,
-				PlanModifiers: []planmodifier.Int64{
-					int64planmodifier.UseStateForUnknown(),
 				},
 			},
 			"image": schema.StringAttribute{
@@ -311,7 +272,7 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				},
 			},
 			"label": schema.StringAttribute{
-				MarkdownDescription: "Custom name for the instance.",
+				MarkdownDescription: "Custom name for the instance. Can be changed in place.",
 				Optional:            true,
 			},
 			"disk": schema.Float64Attribute{
@@ -344,7 +305,7 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				},
 			},
 			"target_state": schema.StringAttribute{
-				MarkdownDescription: "Desired state of the instance.",
+				MarkdownDescription: "Desired state of the instance, `running` (the default) or `stopped`. Can be changed in place to stop or start the instance.",
 				Optional:            true,
 				Computed:            true,
 				Validators: []validator.String{
@@ -354,10 +315,13 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
-			"price": schema.Float64Attribute{
-				MarkdownDescription: "Bid price per machine in $/hour, between 0.001 and 128. Only meaningful for interruptible instances.",
-				Optional:            true,
-			},
+			// "price": schema.Float64Attribute{
+			// 	MarkdownDescription: "Bid price per machine in $/hour, between 0.001 and 128. Only meaningful for interruptible instances and only applied at creation; changing it forces a new instance.",
+			// 	Optional:            true,
+			// 	PlanModifiers: []planmodifier.Float64{
+			// 		float64planmodifier.RequiresReplace(),
+			// 	},
+			// },
 			"env": schema.StringAttribute{
 				MarkdownDescription: "Environment variables and port mappings in Docker flag format, for example `-e HF_TOKEN=hf_xxx -p 8000:8000`. Merged by key with the template `env` when `template_hash_id` is set.",
 				Optional:            true,
@@ -375,10 +339,8 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"vm": schema.BoolAttribute{
 				MarkdownDescription: "Whether this is a VM instance rather than a Docker instance. Note that a VM instance requires an SSH key registered on the account before creation.",
 				Optional:            true,
-				Computed:            true,
 				PlanModifiers: []planmodifier.Bool{
 					boolplanmodifier.RequiresReplace(),
-					boolplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"onstart": schema.StringAttribute{
@@ -478,6 +440,10 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 					},
 				},
 			},
+			"instance_id": schema.Int64Attribute{
+				MarkdownDescription: "ID of the instance contract created from the offer, returned by the API as `new_contract`. This is the ID used to manage the instance after creation.",
+				Computed:            true,
+			},
 			"ssh_host": schema.StringAttribute{
 				MarkdownDescription: "Hostname to use when connecting to the instance over SSH, for example `ssh5.vast.ai`.",
 				Computed:            true,
@@ -560,68 +526,59 @@ func (r *instanceResource) Configure(
 	}
 
 	client, ok := req.ProviderData.(*vastai.Client)
-
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
-			fmt.Sprintf("Expected *vastai.Client, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected *vastai.Client, got: %T", req.ProviderData),
 		)
-
 		return
 	}
 
 	r.client = client
 }
 
-// Create creates the resource and sets the initial Terraform state.
 func (r *instanceResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	// retrieve values from the plan
-	var instance instanceResourceModel
-	diags := req.Plan.Get(ctx, &instance)
+	var model instanceResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	reqBody, diags := model.toCreateInstanceRequest(ctx)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	reqBody, diags := instance.toCreateInstanceRequest(ctx)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	contractID, err := r.client.CreateInstance(ctx, instance.ID.ValueInt64(), reqBody)
+	contractID, err := r.client.CreateInstance(ctx, model.ID.ValueInt64(), reqBody)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating an instance", err.Error())
 		return
 	}
 
-	createdInstance, err := r.client.WaitForInstanceStatus(ctx, contractID, vastai.InstanceStatusRunning)
+	createdInstance, err := r.client.WaitForInstanceState(ctx, contractID, model.TargetState.ValueString())
 	if err != nil {
-		// The instance exists and is billing at this point. Record its ID so
-		// Terraform tracks it (as tainted) instead of leaking it.
-		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), instance.ID)...)
 		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("instance_id"), contractID)...)
 		resp.Diagnostics.AddError("Error waiting for instance to become ready", err.Error())
 		return
 	}
 
-	resp.Diagnostics.Append(instance.applyInstance(ctx, createdInstance)...)
+	resp.Diagnostics.Append(model.applyInstance(ctx, createdInstance)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	resp.Diagnostics.Append(resp.State.Set(ctx, &instance)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
 }
 
-// Read refreshes the Terraform state with the latest data.
 func (r *instanceResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var instance instanceResourceModel
-	resp.Diagnostics.Append(req.State.Get(ctx, &instance)...)
+	var model instanceResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &model)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	if instance.InstanceID.IsNull() || instance.InstanceID.IsUnknown() {
+	if model.InstanceID.IsNull() || model.InstanceID.IsUnknown() {
 		resp.Diagnostics.AddError(
 			"Error reading instance",
 			"The instance has no instance_id in state, so it cannot be looked up through the API.",
@@ -629,7 +586,7 @@ func (r *instanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	inst, err := r.client.ShowInstance(ctx, instance.InstanceID.ValueInt64())
+	inst, err := r.client.ShowInstance(ctx, model.InstanceID.ValueInt64())
 	if errors.Is(err, vastai.ErrNotFound) {
 		resp.State.RemoveResource(ctx)
 		return
@@ -639,31 +596,66 @@ func (r *instanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 		return
 	}
 
-	// Only computed attributes are refreshed. Configurable ones are left as the
-	// user wrote them: the API returns normalized forms (e.g. image_uuid for
-	// image) that would otherwise show up as a permanent diff and, with
-	// RequiresReplace on most of them, force a new instance on every apply.
-	resp.Diagnostics.Append(instance.applyInstance(ctx, inst)...)
+	// update computed attributes
+	resp.Diagnostics.Append(model.applyInstance(ctx, inst)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	resp.Diagnostics.Append(resp.State.Set(ctx, &instance)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
 }
 
-// Update updates the resource and sets the updated Terraform state on success.
+// can update only target state and label, everything else requires replacement
 func (r *instanceResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-}
-
-// Delete deletes the resource and removes the Terraform state on success.
-func (r *instanceResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var instance instanceResourceModel
-	resp.Diagnostics.Append(req.State.Get(ctx, &instance)...)
+	var planModel, stateModel instanceResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &planModel)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &stateModel)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	if instance.InstanceID.IsNull() || instance.InstanceID.IsUnknown() {
+	if stateModel.InstanceID.IsNull() || stateModel.InstanceID.IsUnknown() {
+		resp.Diagnostics.AddError(
+			"Error updating instance",
+			"The instance has no instance_id in state, so it cannot be updated through the API.",
+		)
+		return
+	}
+
+	id := stateModel.InstanceID.ValueInt64()
+
+	body := vastai.ManageInstanceJSONRequestBody{
+		Label: planModel.Label.ValueStringPointer(),
+		State: enumPtr[vastai.ManageInstanceJSONBodyState](planModel.TargetState),
+	}
+
+	if err := r.client.ManageInstance(ctx, id, body); err != nil {
+		resp.Diagnostics.AddError("Error updating instance", err.Error())
+		return
+	}
+
+	inst, err := r.client.WaitForInstanceState(ctx, id, planModel.TargetState.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Error waiting for instance after update", err.Error())
+		return
+	}
+
+	resp.Diagnostics.Append(planModel.applyInstance(ctx, inst)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &planModel)...)
+}
+
+func (r *instanceResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var model instanceResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &model)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if model.InstanceID.IsNull() || model.InstanceID.IsUnknown() {
 		resp.Diagnostics.AddError(
 			"Error destroying instance",
 			"The instance has no instance_id in state, so it cannot be destroyed through the API. Remove it from state manually and destroy it in the Vast.ai console.",
@@ -671,9 +663,8 @@ func (r *instanceResource) Delete(ctx context.Context, req resource.DeleteReques
 		return
 	}
 
-	if err := r.client.DestroyInstance(ctx, instance.InstanceID.ValueInt64()); err != nil {
+	if err := r.client.DestroyInstance(ctx, model.InstanceID.ValueInt64()); err != nil {
 		resp.Diagnostics.AddError("Error destroying instance", err.Error())
 		return
 	}
-	// On success the framework removes the resource from state.
 }

@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 package vastai
 
 import (
@@ -13,6 +16,19 @@ import (
 	"time"
 )
 
+// The API describes an instance with two different vocabularies:
+//
+//   - intended_status is what was asked for, set through target_state on
+//     creation or through ManageInstance: "running" or "stopped".
+//   - actual_status is what the container currently is. A stopped container
+//     reports "exited", never "stopped".
+
+// Instance intended_status values.
+const (
+	InstanceStateRunning = "running"
+	InstanceStateStopped = "stopped"
+)
+
 // Instance actual_status values relevant to lifecycle handling.
 const (
 	InstanceStatusRunning = "running"
@@ -20,6 +36,13 @@ const (
 	InstanceStatusUnknown = "unknown"
 	InstanceStatusOffline = "offline"
 )
+
+// statusForState is the actual_status an instance reports once it has
+// reached an intended state.
+var statusForState = map[string]string{
+	InstanceStateRunning: InstanceStatusRunning,
+	InstanceStateStopped: InstanceStatusExited,
+}
 
 const pollInterval = 10 * time.Second
 
@@ -149,6 +172,17 @@ func (c *Client) DestroyInstance(ctx context.Context, id int64) error {
 	return nil
 }
 
+// ManageInstance changes what the API allows to change on a running contract:
+// the intended state (start/stop) and the label. Nil fields are left as they
+// are. A state change is asynchronous; use WaitForInstanceState to observe it.
+func (c *Client) ManageInstance(ctx context.Context, id int64, body ManageInstanceJSONRequestBody) error {
+	r, err := c.ManageInstanceWithResponse(ctx, int(id), body)
+	if err := check(r, err); err != nil {
+		return fmt.Errorf("managing instance %d: %w", id, err)
+	}
+	return nil
+}
+
 func withJSONBody(body string) RequestEditorFn {
 	return func(_ context.Context, req *http.Request) error {
 		req.Body = io.NopCloser(strings.NewReader(body))
@@ -156,6 +190,20 @@ func withJSONBody(body string) RequestEditorFn {
 		req.Header.Set("Content-Type", "application/json")
 		return nil
 	}
+}
+
+// WaitForInstanceState polls until the instance has reached the intended
+// state, InstanceStateRunning or InstanceStateStopped. An empty state means
+// the API default, running.
+func (c *Client) WaitForInstanceState(ctx context.Context, id int64, state string) (*Instance, error) {
+	if state == "" {
+		state = InstanceStateRunning
+	}
+	status, ok := statusForState[state]
+	if !ok {
+		return nil, fmt.Errorf("waiting for instance %d: unknown state %q", id, state)
+	}
+	return c.WaitForInstanceStatus(ctx, id, status)
 }
 
 // WaitForInstanceStatus polls until the instance's actual_status is target.

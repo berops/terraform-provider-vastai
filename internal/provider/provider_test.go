@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 package provider
 
 import (
@@ -35,15 +38,19 @@ func testAccPreCheck(t *testing.T) {
 	}
 }
 
+// testAccApiURL returns the API base URL the provider under test talks to.
+func testAccApiURL() string {
+	if apiURL := os.Getenv("VASTAI_API_URL"); apiURL != "" {
+		return apiURL
+	}
+	return "https://console.vast.ai"
+}
+
 // newVastAiClient returns an API client configured the same way the provider
 // configures itself, for verifying remote state outside of Terraform.
 func newVastAiClient(t *testing.T) *vastai.Client {
 	t.Helper()
-	apiURL := os.Getenv("VASTAI_API_URL")
-	if apiURL == "" {
-		apiURL = "https://console.vast.ai"
-	}
-	client, err := vastai.New(os.Getenv("VASTAI_API_KEY"), apiURL)
+	client, err := vastai.New(os.Getenv("VASTAI_API_KEY"), testAccApiURL())
 	if err != nil {
 		t.Fatalf("creating vastai client: %v", err)
 	}
