@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,10 +54,16 @@ func New(apiKey, baseURL string) (*Client, error) {
 	rc := retryablehttp.NewClient()
 	rc.Logger = nil
 	rc.RetryMax = 4
+	rc.RetryWaitMin = time.Second
+	rc.RetryWaitMax = 30 * time.Second
 	rc.HTTPClient.Timeout = 60 * time.Second // per attempt
 	rc.CheckRetry = func(_ context.Context, resp *http.Response, err error) (bool, error) {
 		return err == nil && resp.StatusCode == http.StatusTooManyRequests, nil
 	}
+	rc.Backoff = rateLimitBackoff
+	// Hand the last 429 back to the caller instead of swallowing it, so
+	// check() can surface the API's own "requests too frequent" message.
+	rc.ErrorHandler = retryablehttp.PassthroughErrorHandler
 	c, err := NewClientWithResponses(baseURL,
 		WithHTTPClient(rc.StandardClient()),
 		WithRequestEditorFn(auth),
@@ -65,6 +72,22 @@ func New(apiKey, baseURL string) (*Client, error) {
 		return nil, err
 	}
 	return &Client{ClientWithResponses: c, bearer: bearer}, nil
+}
+
+// rateLimitBackoff spaces out retries after a 429. vast.ai enforces a minimum
+// interval between calls to the same endpoint and answers a too-early call
+// with "Retry-After: 0", which the library's default backoff takes literally,
+// burning every retry within the same sub-second window. We always wait at
+// least minWait*2^attempt (1s, 2s, 4s, 8s) and only let Retry-After lengthen that
+// wait, never shorten it.
+func rateLimitBackoff(minWait, maxWait time.Duration, attemptNum int, resp *http.Response) time.Duration {
+	wait := minWait * time.Duration(1<<uint(attemptNum))
+	if resp != nil {
+		if secs, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil {
+			wait = max(wait, time.Duration(secs)*time.Second)
+		}
+	}
+	return min(wait, maxWait)
 }
 
 type APIError struct {
