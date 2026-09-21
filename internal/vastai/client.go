@@ -9,54 +9,40 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/hashicorp/go-retryablehttp"
 )
 
-// The API describes an instance with two different vocabularies:
-//
-//   - intended_status is what was asked for, set through target_state on
-//     creation or through ManageInstance: "running" or "stopped".
-//   - actual_status is what the container currently is. A stopped container
-//     reports "exited", never "stopped".
-
-// Instance intended_status values.
 const (
-	InstanceStateRunning = "running"
-	InstanceStateStopped = "stopped"
+	IntendedStatusRunning = "running"
+	IntendedStatusStopped = "stopped"
+	IntendedStatusGone    = "gone"
 )
 
-// Instance actual_status values relevant to lifecycle handling.
 const (
-	InstanceStatusRunning = "running"
-	InstanceStatusExited  = "exited"
-	InstanceStatusUnknown = "unknown"
-	InstanceStatusOffline = "offline"
+	ActualStatusRunning = "running"
+	ActualStatusExited  = "exited"
+	ActualStatusUnknown = "unknown"
+	ActualStatusOffline = "offline"
 )
 
-// statusForState is the actual_status an instance reports once it has
-// reached an intended state.
-var statusForState = map[string]string{
-	InstanceStateRunning: InstanceStatusRunning,
-	InstanceStateStopped: InstanceStatusExited,
+var actualStatusFor = map[string]string{
+	IntendedStatusRunning: ActualStatusRunning,
+	IntendedStatusStopped: ActualStatusExited,
 }
 
 const pollInterval = 10 * time.Second
 
-// ErrNotFound is reported when the requested object does not exist.
-// APIErrors with a 404 status match it via errors.Is.
 var ErrNotFound = errors.New("not found")
 
-// Client is the generated client bound to a Vast.ai account. It adds
-// authentication, uniform error handling and the lifecycle helpers the
-// provider needs; every generated operation remains available on it.
 type Client struct {
 	*ClientWithResponses
 	bearer string
 }
 
-// New returns a Client for baseURL (e.g. "https://console.vast.ai")
-// authenticated with apiKey.
 func New(apiKey, baseURL string) (*Client, error) {
 	bearer := "Bearer " + apiKey
 	auth := func(_ context.Context, req *http.Request) error {
@@ -64,8 +50,15 @@ func New(apiKey, baseURL string) (*Client, error) {
 		req.Header.Set("Accept", "application/json")
 		return nil
 	}
+	rc := retryablehttp.NewClient()
+	rc.Logger = nil
+	rc.RetryMax = 4
+	rc.HTTPClient.Timeout = 60 * time.Second // per attempt
+	rc.CheckRetry = func(_ context.Context, resp *http.Response, err error) (bool, error) {
+		return err == nil && resp.StatusCode == http.StatusTooManyRequests, nil
+	}
 	c, err := NewClientWithResponses(baseURL,
-		WithHTTPClient(&http.Client{Timeout: 60 * time.Second}),
+		WithHTTPClient(rc.StandardClient()),
 		WithRequestEditorFn(auth),
 	)
 	if err != nil {
@@ -74,8 +67,6 @@ func New(apiKey, baseURL string) (*Client, error) {
 	return &Client{ClientWithResponses: c, bearer: bearer}, nil
 }
 
-// APIError is an error response from the API: a non-2xx status, or a 2xx
-// body carrying {"success": false}, which Vast.ai uses for many failures.
 type APIError struct {
 	StatusCode int
 	Code       string // the "error" field, e.g. "no_ssh_key"; may be empty
@@ -93,13 +84,11 @@ func (e *APIError) Is(target error) bool {
 	return target == ErrNotFound && e.StatusCode == http.StatusNotFound
 }
 
-// response is the part of every generated *Response type check relies on.
 type response interface {
 	StatusCode() int
 	GetBody() []byte
 }
 
-// check turns a failed call or an error response into an error.
 func check(r response, err error) error {
 	if err != nil {
 		return err
@@ -132,7 +121,6 @@ func hasStatus(err error, status int) bool {
 	return errors.As(err, &e) && e.StatusCode == status
 }
 
-// CreateInstance rents offer askID and returns the ID of the new contract.
 func (c *Client) CreateInstance(ctx context.Context, askID int64, body CreateInstanceJSONRequestBody) (int64, error) {
 	r, err := c.CreateInstanceWithResponse(ctx, int(askID), body)
 	if err := check(r, err); err != nil {
@@ -144,24 +132,18 @@ func (c *Client) CreateInstance(ctx context.Context, askID int64, body CreateIns
 	return int64(*r.JSON200.NewContract), nil
 }
 
-// ShowInstance returns the instance, or ErrNotFound if it no longer exists.
 func (c *Client) ShowInstance(ctx context.Context, id int64) (*Instance, error) {
 	r, err := c.ShowInstanceWithResponse(ctx, int(id))
 	if err := check(r, err); err != nil {
 		return nil, fmt.Errorf("showing instance %d: %w", id, err)
 	}
-	// A destroyed instance may come back as an empty object rather than a 404.
 	if r.JSON200 == nil || r.JSON200.Instances == nil || r.JSON200.Instances.ID == nil {
 		return nil, fmt.Errorf("showing instance %d: %w", id, ErrNotFound)
 	}
 	return r.JSON200.Instances, nil
 }
 
-// DestroyInstance permanently destroys an instance and all its data.
-// Destroying an instance that no longer exists is not an error.
 func (c *Client) DestroyInstance(ctx context.Context, id int64) error {
-	// The API expects a JSON body even though it carries nothing; the spec
-	// (and so the generated request) has none.
 	r, err := c.DestroyInstanceWithResponse(ctx, int(id), withJSONBody("{}"))
 	if err := check(r, err); err != nil && !errors.Is(err, ErrNotFound) {
 		return fmt.Errorf("destroying instance %d: %w", id, err)
@@ -169,9 +151,6 @@ func (c *Client) DestroyInstance(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ManageInstance changes what the API allows to change on a running contract:
-// the intended state (start/stop) and the label. Nil fields are left as they
-// are. A state change is asynchronous; use WaitForInstanceState to observe it.
 func (c *Client) ManageInstance(ctx context.Context, id int64, body ManageInstanceJSONRequestBody) error {
 	r, err := c.ManageInstanceWithResponse(ctx, int(id), body)
 	if err := check(r, err); err != nil {
@@ -189,24 +168,15 @@ func withJSONBody(body string) RequestEditorFn {
 	}
 }
 
-// WaitForInstanceState polls until the instance has reached the intended
-// state, InstanceStateRunning or InstanceStateStopped. An empty state means
-// the API default, running.
-func (c *Client) WaitForInstanceState(ctx context.Context, id int64, state string) (*Instance, error) {
-	if state == "" {
-		state = InstanceStateRunning
+func (c *Client) WaitForIntendedStatus(ctx context.Context, id int64, intendedStatus string, terminalActualStatuses []string) (*Instance, error) {
+	if intendedStatus == "" {
+		intendedStatus = IntendedStatusRunning
 	}
-	status, ok := statusForState[state]
-	if !ok {
-		return nil, fmt.Errorf("waiting for instance %d: unknown state %q", id, state)
+	wantActualStatus, ok := actualStatusFor[intendedStatus]
+	if !ok && intendedStatus != IntendedStatusGone {
+		return nil, fmt.Errorf("waiting for instance %d: unknown intended status %q", id, intendedStatus)
 	}
-	return c.WaitForInstanceStatus(ctx, id, status)
-}
 
-// WaitForInstanceStatus polls until the instance's actual_status is target.
-// It fails early if the instance enters a status it cannot recover from. The
-// last instance seen is returned alongside any error.
-func (c *Client) WaitForInstanceStatus(ctx context.Context, id int64, target string) (*Instance, error) {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
@@ -215,44 +185,35 @@ func (c *Client) WaitForInstanceStatus(ctx context.Context, id int64, target str
 		inst, err := c.ShowInstance(ctx, id)
 		switch {
 		case hasStatus(err, http.StatusTooManyRequests):
-			// Being throttled must not fail an apply that has already rented a machine.
+		case errors.Is(err, ErrNotFound) && intendedStatus == IntendedStatusGone:
+			return last, nil
 		case err != nil:
 			return last, err
+		case intendedStatus == IntendedStatusGone:
+			last = inst
 		default:
 			last = inst
-			status := inst.ActualStatus.GetOrEmpty()
-			if status == target {
+			actualStatus := inst.ActualStatus.GetOrEmpty()
+			if actualStatus == wantActualStatus {
 				return inst, nil
 			}
-			if isTerminalStatus(status) {
+			if slices.Contains(terminalActualStatuses, actualStatus) {
 				msg := inst.StatusMsg.GetOrEmpty()
 				if msg != "" {
 					msg = ": " + msg
 				}
-				return inst, fmt.Errorf("instance %d entered status %q and will not reach %q%s", id, status, target, msg)
+				return inst, fmt.Errorf("instance %d entered actual status %q and will not reach %q%s", id, actualStatus, wantActualStatus, msg)
 			}
 		}
 
 		select {
 		case <-ctx.Done():
-			return last, fmt.Errorf("waiting for instance %d to reach %q: %w", id, target, ctx.Err())
+			return last, fmt.Errorf("waiting for instance %d to reach intended status %q: %w", id, intendedStatus, ctx.Err())
 		case <-ticker.C:
 		}
 	}
 }
 
-// isTerminalStatus reports whether an instance in status will never reach
-// running on its own; the API documents these as "destroy and retry".
-func isTerminalStatus(status string) bool {
-	switch status {
-	case InstanceStatusExited, InstanceStatusUnknown, InstanceStatusOffline:
-		return true
-	}
-	return false
-}
-
-// SSHKey is a public key registered on the account. The create and list
-// endpoints return it in different shapes; this is their common form.
 type SSHKey struct {
 	ID        int64
 	UserID    int64
@@ -260,12 +221,6 @@ type SSHKey struct {
 	CreatedAt time.Time
 }
 
-// sshKeyJSON is the wire form of a key. The create endpoint calls the key
-// material public_key and the list endpoint calls it key; both are read.
-//
-// The OpenAPI spec declares created_at as an RFC 3339 string, but the API
-// sends epoch seconds, so the generated parsers reject every key response.
-// This hand-written form decodes either representation.
 type sshKeyJSON struct {
 	ID        int64    `json:"id"`
 	UserID    int64    `json:"user_id"`
@@ -283,12 +238,7 @@ func (k sshKeyJSON) sshKey() SSHKey {
 	}
 }
 
-// CreateSSHKey registers publicKey on the account. The API also adds it to
-// every instance the account currently owns.
 func (c *Client) CreateSSHKey(ctx context.Context, publicKey string) (SSHKey, error) {
-	// The generated CreateSSHKeyWithResponse cannot decode the body (see
-	// sshKeyJSON), so issue the request through the generated transport
-	// and decode the body here.
 	r, err := readResponse(c.ClientInterface.CreateSSHKey(ctx, CreateSSHKeyJSONRequestBody{SSHKey: publicKey}))
 	if err := check(r, err); err != nil {
 		return SSHKey{}, fmt.Errorf("creating ssh key: %w", err)
@@ -307,13 +257,11 @@ func (c *Client) CreateSSHKey(ctx context.Context, publicKey string) (SSHKey, er
 	return k, nil
 }
 
-// ListSSHKeys returns every key registered on the account.
 func (c *Client) ListSSHKeys(ctx context.Context) ([]SSHKey, error) {
-	// Decoded by hand for the same reason as CreateSSHKey.
 	r, err := readResponse(c.GetSSHKeysUser(ctx, &GetSSHKeysUserParams{Authorization: c.bearer}))
 	switch err := check(r, err); {
 	case errors.Is(err, ErrNotFound):
-		return nil, nil // the API reports "no keys" as 404
+		return nil, nil
 	case err != nil:
 		return nil, fmt.Errorf("listing ssh keys: %w", err)
 	}
@@ -328,9 +276,6 @@ func (c *Client) ListSSHKeys(ctx context.Context) ([]SSHKey, error) {
 	return keys, nil
 }
 
-// unixTime is a timestamp that decodes from the epoch-second numbers Vast.ai
-// returns as well as from the RFC 3339 strings its spec promises, so the
-// client keeps working if the API is ever brought in line with the spec.
 type unixTime struct{ time.Time }
 
 func (t *unixTime) UnmarshalJSON(b []byte) error {
@@ -346,8 +291,6 @@ func (t *unixTime) UnmarshalJSON(b []byte) error {
 	return json.Unmarshal(b, &t.Time)
 }
 
-// rawResponse is a fully read HTTP response. It satisfies response so that
-// bodies the generated parsers cannot decode can still go through check.
 type rawResponse struct {
 	status int
 	body   []byte
@@ -356,8 +299,6 @@ type rawResponse struct {
 func (r rawResponse) StatusCode() int { return r.status }
 func (r rawResponse) GetBody() []byte { return r.body }
 
-// readResponse drains rsp into a rawResponse. It takes the (response, error)
-// pair of a generated transport call directly so callers can wrap them.
 func readResponse(rsp *http.Response, err error) (rawResponse, error) {
 	if err != nil {
 		return rawResponse{}, err
@@ -370,7 +311,6 @@ func readResponse(rsp *http.Response, err error) (rawResponse, error) {
 	return rawResponse{status: rsp.StatusCode, body: body}, nil
 }
 
-// UpdateSSHKey replaces the public key stored under id.
 func (c *Client) UpdateSSHKey(ctx context.Context, id int64, publicKey string) error {
 	r, err := c.UpdateSSHKeyWithResponse(ctx, int(id), UpdateSSHKeyJSONRequestBody{SSHKey: publicKey})
 	if err := check(r, err); err != nil {
@@ -379,11 +319,8 @@ func (c *Client) UpdateSSHKey(ctx context.Context, id int64, publicKey string) e
 	return nil
 }
 
-// DeleteSSHKey removes a key from the account. Deleting a key that no longer
-// exists is not an error.
 func (c *Client) DeleteSSHKey(ctx context.Context, id int64) error {
 	r, err := c.DeleteSSHKeyWithResponse(ctx, id)
-	// A missing key is reported as 400 no_ssh_key rather than 404.
 	if err := check(r, err); err != nil && !errors.Is(err, ErrNotFound) && !hasCode(err, "no_ssh_key") {
 		return fmt.Errorf("deleting ssh key %d: %w", id, err)
 	}

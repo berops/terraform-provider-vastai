@@ -553,7 +553,8 @@ func (r *instanceResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	createdInstance, err := r.client.WaitForInstanceState(ctx, contractID, model.TargetState.ValueString())
+	terminalActualStatuses := []string{vastai.ActualStatusExited, vastai.ActualStatusUnknown, vastai.ActualStatusOffline}
+	createdInstance, err := r.client.WaitForIntendedStatus(ctx, contractID, model.TargetState.ValueString(), terminalActualStatuses)
 	if err != nil {
 		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("instance_id"), contractID)...)
 		resp.Diagnostics.AddError("Error waiting for instance to become ready", err.Error())
@@ -631,7 +632,8 @@ func (r *instanceResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	inst, err := r.client.WaitForInstanceState(ctx, id, planModel.TargetState.ValueString())
+	terminalActualStatuses := []string{vastai.ActualStatusUnknown, vastai.ActualStatusOffline}
+	inst, err := r.client.WaitForIntendedStatus(ctx, id, planModel.TargetState.ValueString(), terminalActualStatuses)
 	if err != nil {
 		resp.Diagnostics.AddError("Error waiting for instance after update", err.Error())
 		return

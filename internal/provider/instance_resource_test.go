@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -73,7 +72,7 @@ func TestAccInstanceResource(t *testing.T) {
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("public_ipaddr"), nonEmpty),
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("dph_total"), knownvalue.NotNull()),
 				},
-				Check: checkInstanceViaApi(t, vastai.InstanceStatusRunning, testAccInstanceLabel, &instanceID),
+				Check: checkInstanceViaApi(t, vastai.ActualStatusRunning, testAccInstanceLabel, &instanceID),
 			},
 			// reapply, idempotency check
 			{
@@ -97,7 +96,7 @@ func TestAccInstanceResource(t *testing.T) {
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("target_state"), knownvalue.StringExact("stopped")),
 				},
 				Check: resource.ComposeAggregateTestCheckFunc(
-					checkInstanceViaApi(t, vastai.InstanceStatusExited, testAccInstanceRelabel, &instanceID),
+					checkInstanceViaApi(t, vastai.ActualStatusExited, testAccInstanceRelabel, &instanceID),
 				),
 			},
 			// start again in place
@@ -109,7 +108,7 @@ func TestAccInstanceResource(t *testing.T) {
 					},
 				},
 				Check: resource.ComposeAggregateTestCheckFunc(
-					checkInstanceViaApi(t, vastai.InstanceStatusRunning, testAccInstanceRelabel, &instanceID),
+					checkInstanceViaApi(t, vastai.ActualStatusRunning, testAccInstanceRelabel, &instanceID),
 				),
 			},
 		},
@@ -227,7 +226,7 @@ func instanceIDFromState(s *terraform.State) (int64, error) {
 	return id, nil
 }
 
-func checkInstanceViaApi(t *testing.T, wantStatus, wantLabel string, gotID *int64) resource.TestCheckFunc {
+func checkInstanceViaApi(t *testing.T, wantActualStatus, wantLabel string, gotID *int64) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		id, err := instanceIDFromState(s)
 		if err != nil {
@@ -237,8 +236,8 @@ func checkInstanceViaApi(t *testing.T, wantStatus, wantLabel string, gotID *int6
 		if err != nil {
 			return err
 		}
-		if status := inst.ActualStatus.GetOrEmpty(); status != wantStatus {
-			return fmt.Errorf("instance %d has status %q, want %q", id, status, wantStatus)
+		if actualStatus := inst.ActualStatus.GetOrEmpty(); actualStatus != wantActualStatus {
+			return fmt.Errorf("instance %d has actual status %q, want %q", id, actualStatus, wantActualStatus)
 		}
 		if label := inst.Label.GetOrEmpty(); label != wantLabel {
 			return fmt.Errorf("instance %d has label %q, want %q", id, label, wantLabel)
@@ -259,32 +258,14 @@ func checkIfInstanceWasDestroyed(t *testing.T) resource.TestCheckFunc {
 			if err != nil {
 				return fmt.Errorf("parsing instance_id %q: %w", rs.Primary.Attributes["instance_id"], err)
 			}
-			if err := waitForInstanceGone(t.Context(), client, id); err != nil {
+			// Destruction is asynchronous, so a lookup right after destroying
+			// may still return the instance.
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+			defer cancel()
+			if _, err := client.WaitForIntendedStatus(ctx, id, vastai.IntendedStatusGone, nil); err != nil {
 				return err
 			}
 		}
 		return nil
-	}
-}
-
-// waitForInstanceGone polls until the API no longer knows the instance.
-// Destruction is asynchronous, so a lookup right after destroying may still
-// return it.
-func waitForInstanceGone(ctx context.Context, client *vastai.Client, id int64) error {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	for {
-		_, err := client.ShowInstance(ctx, id)
-		if errors.Is(err, vastai.ErrNotFound) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("checking instance %d: %w", id, err)
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("instance %d still exists after destroy", id)
-		case <-time.After(5 * time.Second):
-		}
 	}
 }
