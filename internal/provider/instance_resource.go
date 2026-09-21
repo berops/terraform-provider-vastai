@@ -602,7 +602,7 @@ func (r *instanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
 }
 
-// can update only target state and label, everything else requires replacement
+// can update only target state and label, everything else requires replacement.
 func (r *instanceResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var planModel, stateModel instanceResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &planModel)...)

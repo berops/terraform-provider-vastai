@@ -24,14 +24,15 @@ import (
 
 const (
 	testAccInstanceResourceName = "vastai_instance.test"
-	testAccInstanceImage        = "vastai/base-image:cuda-12.4.1-auto"
-	testAccInstanceDisk         = 20
+	testAccInstanceImage        = "docker.io/vastai/kvm:@vastai-automatic-tag"
+	testAccInstanceDisk         = 150
 	testAccInstanceLabel        = "tf-acc-instance"
 	testAccInstanceRelabel      = "tf-acc-instance-renamed"
 )
 
 func TestAccInstanceResource(t *testing.T) {
 	testAccPreCheck(t)
+	useTeamAPIKey(t)
 
 	registerSshKey(t)
 	offer := searchCheapestOffer(t)
@@ -138,13 +139,16 @@ func instanceResourceConfigWithState(offerID int64, label, targetState string) s
 		}`, offerID, testAccInstanceImage, testAccInstanceDisk, label, targetState)
 }
 
-// registerSshKey uploads a throwaway SSH key to the account for the duration
-// of the test and removes it afterwards. The API refuses to create an instance
-// on an account without one.
+// registerSshKey uploads a throwaway SSH key for the duration of the test and
+// removes it afterwards, the API refuses to create an instance on an account
+// without one.
 func registerSshKey(t *testing.T) {
 	t.Helper()
 
-	client := newVastAiClient(t)
+	client, err := vastai.New(personalAPIKey(), testAccApiURL())
+	if err != nil {
+		t.Fatalf("creating vastai client: %v", err)
+	}
 	key, err := client.CreateSSHKey(t.Context(), generateSshKey(t, testAccInstanceLabel))
 	if err != nil {
 		t.Fatalf("registering ssh key: %v", err)
@@ -241,21 +245,6 @@ func checkInstanceViaApi(t *testing.T, wantStatus, wantLabel string, gotID *int6
 		}
 		*gotID = id
 		return nil
-	}
-}
-
-func destroyInstanceViaApi(t *testing.T, id *int64) func() {
-	return func() {
-		if *id == 0 {
-			t.Fatal("instance ID was not recorded by an earlier step")
-		}
-		client := newVastAiClient(t)
-		if err := client.DestroyInstance(t.Context(), *id); err != nil {
-			t.Fatalf("destroying instance %d: %v", *id, err)
-		}
-		if err := waitForInstanceGone(t.Context(), client, *id); err != nil {
-			t.Fatal(err)
-		}
 	}
 }
 

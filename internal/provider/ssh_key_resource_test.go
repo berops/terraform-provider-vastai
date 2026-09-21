@@ -21,6 +21,8 @@ import (
 const testAccSshKeyResourceName = "vastai_ssh_key.test"
 
 func TestAccSshKeyResourceCreateUpdate(t *testing.T) {
+	usePersonalAPIKey(t)
+
 	firstSshKey := generateSshKey(t, "testFirstSshKey")
 	secondSshKey := generateSshKey(t, "testSecondSshKey")
 

@@ -12,24 +12,16 @@ description: |-
 ## Example Usage
 
 ```terraform
-variable "vastai_personal_api_key" {
-  type      = string
-  sensitive = true
-}
-
-variable "vastai_team_api_key" {
-  type      = string
-  sensitive = true
-}
-
+# Since Vast.ai does not support creating SSH keys for team accounts, we initialize
+# two providers: one tied to a personal account and the other to a team account.
 provider "vastai" {
   alias   = "personal"
-  api_key = var.vastai_personal_api_key
+  api_key = "YOUR_API_KEY"
 }
 
 provider "vastai" {
   alias   = "team"
-  api_key = var.vastai_team_api_key
+  api_key = "YOUR_API_KEY"
 }
 ```
 

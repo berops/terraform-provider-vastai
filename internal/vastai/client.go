@@ -1,6 +1,3 @@
-// Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
-
 package vastai
 
 import (
@@ -313,7 +310,7 @@ func (c *Client) CreateSSHKey(ctx context.Context, publicKey string) (SSHKey, er
 // ListSSHKeys returns every key registered on the account.
 func (c *Client) ListSSHKeys(ctx context.Context) ([]SSHKey, error) {
 	// Decoded by hand for the same reason as CreateSSHKey.
-	r, err := readResponse(c.ClientInterface.GetSSHKeysUser(ctx, &GetSSHKeysUserParams{Authorization: c.bearer}))
+	r, err := readResponse(c.GetSSHKeysUser(ctx, &GetSSHKeysUserParams{Authorization: c.bearer}))
 	switch err := check(r, err); {
 	case errors.Is(err, ErrNotFound):
 		return nil, nil // the API reports "no keys" as 404
@@ -391,12 +388,4 @@ func (c *Client) DeleteSSHKey(ctx context.Context, id int64) error {
 		return fmt.Errorf("deleting ssh key %d: %w", id, err)
 	}
 	return nil
-}
-
-// deref returns the value p points to, or the zero value when p is nil.
-func deref[T any](p *T) (v T) {
-	if p != nil {
-		v = *p
-	}
-	return v
 }

@@ -1,6 +1,3 @@
-# Copyright (c) HashiCorp, Inc.
-# SPDX-License-Identifier: MPL-2.0
-
 overlay: 1.0.0
 info:
   title: Local corrections to the upstream Vast.ai OpenAPI document
