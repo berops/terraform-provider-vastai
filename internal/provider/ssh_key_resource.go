@@ -59,7 +59,7 @@ func (r *sshKeyResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				},
 			},
 			"public_key": schema.StringAttribute{
-				MarkdownDescription: "The SSH public key, as found in a `.pub` file.",
+				MarkdownDescription: "SSH public key, in OpenSSH format.",
 				Required:            true,
 				Validators: []validator.String{
 					stringvalidator.RegexMatches(

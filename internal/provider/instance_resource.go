@@ -246,14 +246,14 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 		MarkdownDescription: "Creates a Vast.ai instance by accepting an offer.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.Int64Attribute{
-				MarkdownDescription: "ID of the offer (ask) to accept. Renting a different offer means renting a different machine, so changing this forces a new instance.",
+				MarkdownDescription: "ID of the offer (ask) to accept. Changing this forces a new instance.",
 				Required:            true,
 				PlanModifiers: []planmodifier.Int64{
 					int64planmodifier.RequiresReplace(),
 				},
 			},
 			"image": schema.StringAttribute{
-				MarkdownDescription: "Docker image to run, for example `vastai/base-image:@vastai-automatic-tag`. Optional only when `template_hash_id` supplies one.",
+				MarkdownDescription: "Docker image to run. Required unless `template_hash_id` supplies one.",
 				Optional:            true,
 				Computed:            true,
 				PlanModifiers: []planmodifier.String{
@@ -262,14 +262,14 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				},
 			},
 			"template_hash_id": schema.StringAttribute{
-				MarkdownDescription: "Content-based hash ID of a template to use as base configuration, for example `4e17788f74f075dd9aab7d0d4427968f`.",
+				MarkdownDescription: "Hash ID of a template to use as base configuration.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"label": schema.StringAttribute{
-				MarkdownDescription: "Custom name for the instance. Can be changed in place.",
+				MarkdownDescription: "Custom name for the instance.",
 				Optional:            true,
 			},
 			"disk": schema.Float64Attribute{
@@ -302,7 +302,7 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				},
 			},
 			"target_state": schema.StringAttribute{
-				MarkdownDescription: "Desired state of the instance, `running` (the default) or `stopped`. Can be changed in place to stop or start the instance.",
+				MarkdownDescription: "Desired state of the instance, `running` (the default) or `stopped`.",
 				Optional:            true,
 				Computed:            true,
 				Validators: []validator.String{
@@ -313,42 +313,42 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				},
 			},
 			// "price": schema.Float64Attribute{
-			// 	MarkdownDescription: "Bid price per machine in $/hour, between 0.001 and 128. Only meaningful for interruptible instances and only applied at creation; changing it forces a new instance.",
+			// 	MarkdownDescription: "Bid price per machine in $/hour, between 0.001 and 128. Only used for interruptible instances. Changing this forces a new instance.",
 			// 	Optional:            true,
 			// 	PlanModifiers: []planmodifier.Float64{
 			// 		float64planmodifier.RequiresReplace(),
 			// 	},
 			// },
 			"env": schema.StringAttribute{
-				MarkdownDescription: "Environment variables and port mappings in Docker flag format, for example `-e HF_TOKEN=hf_xxx -p 8000:8000`. Merged by key with the template `env` when `template_hash_id` is set.",
+				MarkdownDescription: "Environment variables and port mappings in Docker flag format. Merged by key with the template `env` when `template_hash_id` is set.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"cancel_unavail": schema.BoolAttribute{
-				MarkdownDescription: "Whether to cancel if the instance cannot start immediately. Defaults to `false` for interruptible instances and `true` for on-demand instances with `target_state = \"running\"`.",
+				MarkdownDescription: "Cancel the request if the instance cannot start immediately. Defaults to `true` for on-demand instances and `false` for interruptible ones.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.Bool{
 					boolplanmodifier.RequiresReplace(),
 				},
 			},
 			"vm": schema.BoolAttribute{
-				MarkdownDescription: "Whether this is a VM instance rather than a Docker instance. Note that a VM instance requires an SSH key registered on the account before creation.",
+				MarkdownDescription: "Whether this is a VM instance rather than a Docker instance. Requires an SSH key on the account before creation.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.Bool{
 					boolplanmodifier.RequiresReplace(),
 				},
 			},
 			"onstart": schema.StringAttribute{
-				MarkdownDescription: "Commands to run when the instance starts, for example `env | grep _ >> /etc/environment; echo 'starting up'`. Limited to 4048 characters; gzip+base64 longer scripts.",
+				MarkdownDescription: "Commands to run when the instance starts. Limited to 4048 characters.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"args": schema.ListAttribute{
-				MarkdownDescription: "Arguments passed to the image entrypoint, for example `[\"bash\", \"-c\", \"echo 'starting up'\"]`. Mutually exclusive with `args_str`.",
+				MarkdownDescription: "Arguments passed to the image entrypoint. Mutually exclusive with `args_str`.",
 				Optional:            true,
 				ElementType:         types.StringType,
 				PlanModifiers: []planmodifier.List{
@@ -356,7 +356,7 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				},
 			},
 			"args_str": schema.StringAttribute{
-				MarkdownDescription: "Arguments passed to the image entrypoint as a single string, for example `bash -c \"echo 'starting up'\"`. Mutually exclusive with `args`.",
+				MarkdownDescription: "Arguments passed to the image entrypoint as a single string. Mutually exclusive with `args`.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
@@ -370,7 +370,7 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				},
 			},
 			"jupyter_dir": schema.StringAttribute{
-				MarkdownDescription: "Directory to launch Jupyter from, for example `/home/notebooks`.",
+				MarkdownDescription: "Directory to launch Jupyter from.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
@@ -398,7 +398,7 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				},
 			},
 			"user": schema.StringAttribute{
-				MarkdownDescription: "User to use with `docker create`. Breaks some images, use with caution.",
+				MarkdownDescription: "User to use with `docker create`. Breaks some images.",
 				Optional:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
@@ -424,7 +424,7 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 						Optional:            true,
 					},
 					"volume_id": schema.Int64Attribute{
-						MarkdownDescription: "When `create_new` is `false`, the ID of an existing volume. When `create_new` is `true`, the ID of a volume offer.",
+						MarkdownDescription: "ID of an existing volume, or of a volume offer when `create_new` is `true`.",
 						Optional:            true,
 					},
 					"size": schema.Int64Attribute{
@@ -432,17 +432,17 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 						Optional:            true,
 					},
 					"mount_path": schema.StringAttribute{
-						MarkdownDescription: "Mount path for the volume inside the container, for example `/workspace`.",
+						MarkdownDescription: "Mount path for the volume inside the container.",
 						Optional:            true,
 					},
 				},
 			},
 			"instance_id": schema.Int64Attribute{
-				MarkdownDescription: "ID of the instance contract created from the offer, returned by the API as `new_contract`. This is the ID used to manage the instance after creation.",
+				MarkdownDescription: "ID of the instance contract. Used to manage the instance after creation.",
 				Computed:            true,
 			},
 			"ssh_host": schema.StringAttribute{
-				MarkdownDescription: "Hostname to use when connecting to the instance over SSH, for example `ssh5.vast.ai`.",
+				MarkdownDescription: "Hostname to use when connecting to the instance over SSH.",
 				Computed:            true,
 			},
 			"ssh_port": schema.Int64Attribute{
@@ -454,7 +454,7 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				Computed:            true,
 			},
 			"ports": schema.MapAttribute{
-				MarkdownDescription: "Host ports the instance's container ports are published on, keyed by container port and protocol, for example `{\"22/tcp\" = 38545}`.",
+				MarkdownDescription: "Host ports the container ports are published on, keyed by container port and protocol.",
 				Computed:            true,
 				ElementType:         types.Int64Type,
 			},
@@ -471,7 +471,7 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				},
 			},
 			"gpu_name": schema.StringAttribute{
-				MarkdownDescription: "Model of the GPUs attached to the instance, for example `RTX 4090`.",
+				MarkdownDescription: "Model of the GPUs attached to the instance.",
 				Computed:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
@@ -484,7 +484,7 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 					int64planmodifier.UseStateForUnknown(),
 				},
 			},
-			"gpu_totalram": schema.Int64Attribute{
+			"gpu_total_ram": schema.Int64Attribute{
 				MarkdownDescription: "Total GPU memory across all attached GPUs, in MB.",
 				Computed:            true,
 				PlanModifiers: []planmodifier.Int64{
@@ -492,7 +492,7 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				},
 			},
 			"geolocation": schema.StringAttribute{
-				MarkdownDescription: "Location of the machine hosting the instance, for example `Poland, PL`.",
+				MarkdownDescription: "Location of the machine hosting the instance.",
 				Computed:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
@@ -553,10 +553,14 @@ func (r *instanceResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
+	// The instance is rented and billing from this point on. Record its ID
+	// before anything else can fail, so that a failed apply still tracks it
+	// and the next plan destroys it instead of leaving it running.
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("instance_id"), contractID)...)
+
 	terminalActualStatuses := []string{vastai.ActualStatusExited, vastai.ActualStatusUnknown, vastai.ActualStatusOffline}
 	createdInstance, err := r.client.WaitForIntendedStatus(ctx, contractID, model.TargetState.ValueString(), terminalActualStatuses)
 	if err != nil {
-		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("instance_id"), contractID)...)
 		resp.Diagnostics.AddError("Error waiting for instance to become ready", err.Error())
 		return
 	}
@@ -662,8 +666,17 @@ func (r *instanceResource) Delete(ctx context.Context, req resource.DeleteReques
 		return
 	}
 
-	if err := r.client.DestroyInstance(ctx, model.InstanceID.ValueInt64()); err != nil {
+	id := model.InstanceID.ValueInt64()
+	if err := r.client.DestroyInstance(ctx, id); err != nil {
 		resp.Diagnostics.AddError("Error destroying instance", err.Error())
+		return
+	}
+
+	// Destruction is asynchronous. Keep the resource in state until the API
+	// no longer knows the instance, so a destroy that fails server-side is
+	// not silently forgotten while it keeps billing.
+	if _, err := r.client.WaitForIntendedStatus(ctx, id, vastai.IntendedStatusGone, nil); err != nil {
+		resp.Diagnostics.AddError("Error waiting for instance to be destroyed", err.Error())
 		return
 	}
 }

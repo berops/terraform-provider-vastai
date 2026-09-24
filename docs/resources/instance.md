@@ -32,44 +32,44 @@ resource "vastai_instance" "gpu" {
 
 ### Required
 
-- `id` (Number) ID of the offer (ask) to accept. Renting a different offer means renting a different machine, so changing this forces a new instance.
+- `id` (Number) ID of the offer (ask) to accept. Changing this forces a new instance.
 
 ### Optional
 
-- `args` (List of String) Arguments passed to the image entrypoint, for example `["bash", "-c", "echo 'starting up'"]`. Mutually exclusive with `args_str`.
-- `args_str` (String) Arguments passed to the image entrypoint as a single string, for example `bash -c "echo 'starting up'"`. Mutually exclusive with `args`.
-- `cancel_unavail` (Boolean) Whether to cancel if the instance cannot start immediately. Defaults to `false` for interruptible instances and `true` for on-demand instances with `target_state = "running"`.
+- `args` (List of String) Arguments passed to the image entrypoint. Mutually exclusive with `args_str`.
+- `args_str` (String) Arguments passed to the image entrypoint as a single string. Mutually exclusive with `args`.
+- `cancel_unavail` (Boolean) Cancel the request if the instance cannot start immediately. Defaults to `true` for on-demand instances and `false` for interruptible ones.
 - `disk` (Number) Size of the local disk partition, in GB.
-- `env` (String) Environment variables and port mappings in Docker flag format, for example `-e HF_TOKEN=hf_xxx -p 8000:8000`. Merged by key with the template `env` when `template_hash_id` is set.
+- `env` (String) Environment variables and port mappings in Docker flag format. Merged by key with the template `env` when `template_hash_id` is set.
 - `force` (Boolean) Skip sanity checks when creating from an existing instance.
-- `image` (String) Docker image to run, for example `vastai/base-image:@vastai-automatic-tag`. Optional only when `template_hash_id` supplies one.
+- `image` (String) Docker image to run. Required unless `template_hash_id` supplies one.
 - `image_login` (String, Sensitive) Docker registry credentials, if the image requires them.
-- `jupyter_dir` (String) Directory to launch Jupyter from, for example `/home/notebooks`.
-- `label` (String) Custom name for the instance. Can be changed in place.
+- `jupyter_dir` (String) Directory to launch Jupyter from.
+- `label` (String) Custom name for the instance.
 - `lang_utf8` (Boolean) Set the instance locale to C.UTF-8.
-- `onstart` (String) Commands to run when the instance starts, for example `env | grep _ >> /etc/environment; echo 'starting up'`. Limited to 4048 characters; gzip+base64 longer scripts.
+- `onstart` (String) Commands to run when the instance starts. Limited to 4048 characters.
 - `python_utf8` (Boolean) Set Python's locale to C.UTF-8.
 - `runtype` (String) Launch mode for the instance. Defaults to `ssh` unless `args` or `args_str` is set.
-- `target_state` (String) Desired state of the instance, `running` (the default) or `stopped`. Can be changed in place to stop or start the instance.
-- `template_hash_id` (String) Content-based hash ID of a template to use as base configuration, for example `4e17788f74f075dd9aab7d0d4427968f`.
+- `target_state` (String) Desired state of the instance, `running` (the default) or `stopped`.
+- `template_hash_id` (String) Hash ID of a template to use as base configuration.
 - `use_jupyter_lab` (Boolean) Launch the instance with Jupyter Lab instead of Jupyter Notebook.
-- `user` (String) User to use with `docker create`. Breaks some images, use with caution.
-- `vm` (Boolean) Whether this is a VM instance rather than a Docker instance. Note that a VM instance requires an SSH key registered on the account before creation.
+- `user` (String) User to use with `docker create`. Breaks some images.
+- `vm` (Boolean) Whether this is a VM instance rather than a Docker instance. Requires an SSH key on the account before creation.
 - `volume_info` (Attributes) Volume to create or link to the instance. (see [below for nested schema](#nestedatt--volume_info))
 
 ### Read-Only
 
 - `dph_total` (Number) Total cost of the instance in dollars per hour, including storage.
-- `geolocation` (String) Location of the machine hosting the instance, for example `Poland, PL`.
-- `gpu_name` (String) Model of the GPUs attached to the instance, for example `RTX 4090`.
+- `geolocation` (String) Location of the machine hosting the instance.
+- `gpu_name` (String) Model of the GPUs attached to the instance.
 - `gpu_totalram` (Number) Total GPU memory across all attached GPUs, in MB.
-- `instance_id` (Number) ID of the instance contract created from the offer, returned by the API as `new_contract`. This is the ID used to manage the instance after creation.
+- `instance_id` (Number) ID of the instance contract. Used to manage the instance after creation.
 - `jupyter_token` (String, Sensitive) Token used to authenticate against the instance's Jupyter server.
 - `machine_id` (Number) ID of the physical machine the instance runs on.
 - `num_gpus` (Number) Number of GPUs attached to the instance.
-- `ports` (Map of Number) Host ports the instance's container ports are published on, keyed by container port and protocol, for example `{"22/tcp" = 38545}`.
+- `ports` (Map of Number) Host ports the container ports are published on, keyed by container port and protocol.
 - `public_ipaddr` (String) Public IP address of the machine hosting the instance.
-- `ssh_host` (String) Hostname to use when connecting to the instance over SSH, for example `ssh5.vast.ai`.
+- `ssh_host` (String) Hostname to use when connecting to the instance over SSH.
 - `ssh_port` (Number) Port to use when connecting to the instance over SSH.
 - `start_date` (Number) Time the instance was created, as a Unix timestamp in seconds.
 
@@ -79,6 +79,6 @@ resource "vastai_instance" "gpu" {
 Optional:
 
 - `create_new` (Boolean) `true` to create a new volume, `false` to link an existing one.
-- `mount_path` (String) Mount path for the volume inside the container, for example `/workspace`.
+- `mount_path` (String) Mount path for the volume inside the container.
 - `size` (Number) Size of the volume in GB. Only used when `create_new` is `true`.
-- `volume_id` (Number) When `create_new` is `false`, the ID of an existing volume. When `create_new` is `true`, the ID of a volume offer.
+- `volume_id` (Number) ID of an existing volume, or of a volume offer when `create_new` is `true`.

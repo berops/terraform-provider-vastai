@@ -24,7 +24,7 @@ resource "vastai_ssh_key" "my_key" {
 
 ### Required
 
-- `public_key` (String) The SSH public key, as found in a `.pub` file.
+- `public_key` (String) SSH public key, in OpenSSH format.
 
 ### Read-Only
 

@@ -28,8 +28,15 @@ func (p *VastAiProvider) Metadata(ctx context.Context, req provider.MetadataRequ
 	resp.Version = p.version
 }
 
+const providerDescription = `Rents GPU instances on [Vast.ai](https://vast.ai/).
+
+Vast.ai does not allow registering SSH keys with a team API key. If you rent instances under a team
+account, configure two provider aliases: one with a personal API key for vastai_ssh_key and one with the
+team API key for vastai_instance.`
+
 func (p *VastAiProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: providerDescription,
 		Attributes: map[string]schema.Attribute{
 			"api_key": schema.StringAttribute{
 				Description: "Vast.ai API key. Can also be set via VASTAI_API_KEY environment variable.",
@@ -52,14 +59,14 @@ func (p *VastAiProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	}
 
 	if model.ApiKey.IsUnknown() {
-		resp.Diagnostics.AddWarning(
+		resp.Diagnostics.AddError(
 			"Unknown Vast.ai API Key",
 			"The provider cannot create the Vast.ai API client as there is an unknown configuration value for the Vast.ai API key.")
 		return
 	}
 
 	if model.ApiUrl.IsUnknown() {
-		resp.Diagnostics.AddWarning(
+		resp.Diagnostics.AddError(
 			"Unknown Vast.ai API URL",
 			"The provider cannot create the Vast.ai API client as there is an unknown configuration value for the Vast.ai API URL")
 		return
