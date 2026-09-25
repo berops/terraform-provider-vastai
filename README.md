@@ -6,12 +6,10 @@ The provider is developed and maintained by [Berops](https://berops.com/). It de
 
 ## Features
 
-| Resource                                        | Description                                         |
-| ----------------------------------------------- | --------------------------------------------------- |
-| [`vastai_instance`](docs/resources/instance.md) | Rents a machine by accepting an offer.              |
-| [`vastai_ssh_key`](docs/resources/ssh_key.md)   | Registers an SSH public key on the Vast.ai account. |
-
-There is no data source for searching offers. Use the [`hashicorp/http`](https://registry.terraform.io/providers/hashicorp/http/latest/docs/data-sources/http) provider to query the [bundles endpoint](https://docs.vast.ai/api-reference/search/search-offers) directly, as shown in the example below.
+| Resource                                        | Description                                                                                   |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [`vastai_instance`](docs/resources/instance.md) | Rents a machine, either a specific offer or the first available one matching search criteria. |
+| [`vastai_ssh_key`](docs/resources/ssh_key.md)   | Registers an SSH public key on the Vast.ai account.                                           |
 
 ## Authentication
 
@@ -34,16 +32,21 @@ Vast.ai does not allow registering SSH keys with a team API key. If you rent ins
 
 ## Example Usage
 
-The example below finds the cheapest offer matching a set of filters, registers an SSH key, and rents the offer as a virtual machine.
+The example below registers an SSH key and rents an offer matching a set of
+filters as a virtual machine. The `search_offer` block mirrors the
+[search offers](https://docs.vast.ai/api-reference/search/search-offers) API:
+every filter is an object of operators (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`,
+`in`, `notin`). The provider rents the first available offer from the returned
+list, so `order` decides which offer is picked; sort by `dph_total` ascending to
+get the cheapest one. The rented offer is stored in `offer_id`. The search runs
+only when the instance is created; plans, refreshes and destroys never touch the
+marketplace.
 
 ```hcl
 terraform {
   required_providers {
     vastai = {
-      source  = "berops/vastai"
-    }
-    http = {
-      source  = "hashicorp/http"
+      source = "berops/vastai"
     }
   }
 }
@@ -68,40 +71,9 @@ provider "vastai" {
   api_key = var.vastai_team_api_key
 }
 
-# Search for offers. See https://docs.vast.ai/api-reference/search/search-offers
-# for the full list of filters.
-data "http" "vm_offers" {
-  url    = "https://console.vast.ai/api/v0/bundles/"
-  method = "POST"
-
-  request_headers = {
-    Authorization  = "Bearer ${var.vastai_team_api_key}"
-    "Content-Type" = "application/json"
-  }
-
-  request_body = jsonencode({
-    type        = "ondemand"
-    verified    = { eq = true }
-    datacenter  = { eq = true }
-    rentable    = { eq = true }
-    rented      = { eq = false }
-    vms_enabled = { eq = true }
-    reliability = { gte = 0.92 }
-    num_gpus    = { eq = 1 }
-    disk_space  = { gte = 150 }
-    limit       = 3
-    order       = [["dph_total", "asc"]]
-  })
-}
-
-locals {
-  vm_offers         = jsondecode(data.http.vm_offers.response_body).offers
-  cheapest_vm_offer = local.vm_offers[0]
-}
-
 resource "vastai_ssh_key" "key" {
   provider   = vastai.personal
-  public_key = file(pathexpand("~/.ssh/id_ed25519.pub"))
+  public_key = file("~/.ssh/id_ed25519.pub")
 }
 
 resource "vastai_instance" "gpu" {
@@ -110,7 +82,6 @@ resource "vastai_instance" "gpu" {
   # A VM instance requires an SSH key on the account before it is created.
   depends_on = [vastai_ssh_key.key]
 
-  id             = local.cheapest_vm_offer.id
   label          = "example-gpu"
   image          = "docker.io/vastai/kvm:@vastai-automatic-tag"
   vm             = true
@@ -118,21 +89,28 @@ resource "vastai_instance" "gpu" {
   disk           = 150
   cancel_unavail = true
 
-  # The offer search runs on every plan and the cheapest offer changes often.
-  # Without this, a new cheapest offer would force the instance to be replaced.
-  lifecycle {
-    ignore_changes = [id]
+  search_offer {
+    gpu_name    = { eq = "RTX 4090" }
+    num_gpus    = { eq = 1 }
+    disk_space  = { gte = 150 }
+    reliability = { gte = 0.98 }
+    verified    = { eq = true }
+    datacenter  = { eq = true }
+    vms_enabled = { eq = true }
+    # sort cheapest first, the first available offer in this order is rented
+    order = [["dph_total", "asc"]]
+    # how many matches to try in turn
+    limit = 5
   }
 }
 
 output "ssh_command" {
   value = "ssh -p ${vastai_instance.gpu.ssh_port} root@${vastai_instance.gpu.ssh_host}"
 }
-
-output "hourly_cost_usd" {
-  value = vastai_instance.gpu.dph_total
-}
 ```
+
+To rent a specific offer instead, set `offer_id` and leave out `search_offer`.
+Exactly one of the two must be set.
 
 Once the instance is running, connect to it as `root` with the private key matching the registered public key.
 

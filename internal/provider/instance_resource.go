@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"terraform-provider-vastai/internal/vastai"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -25,8 +28,10 @@ import (
 )
 
 var (
-	_ resource.Resource              = &instanceResource{}
-	_ resource.ResourceWithConfigure = &instanceResource{}
+	_ resource.Resource                     = &instanceResource{}
+	_ resource.ResourceWithConfigure        = &instanceResource{}
+	_ resource.ResourceWithConfigValidators = &instanceResource{}
+	_ resource.ResourceWithImportState      = &instanceResource{}
 )
 
 func NewInstanceResource() resource.Resource {
@@ -38,8 +43,14 @@ type instanceResource struct {
 }
 
 type instanceResourceModel struct {
+	// Vast.ai also calls this the contract ID
+	InstanceID types.Int64 `tfsdk:"id"`
+
+	// --- Offer selection: exactly one of the two ---
+	OfferID     types.Int64  `tfsdk:"offer_id"`
+	SearchOffer types.Object `tfsdk:"search_offer"`
+
 	// --- Configurable (create instance request) ---
-	ID             types.Int64   `tfsdk:"id"`
 	Image          types.String  `tfsdk:"image"`
 	TemplateHashID types.String  `tfsdk:"template_hash_id"`
 	Label          types.String  `tfsdk:"label"`
@@ -65,7 +76,6 @@ type instanceResourceModel struct {
 	VolumeInfo    types.Object `tfsdk:"volume_info"`
 
 	// --- Computed (show instance response) ---
-	InstanceID   types.Int64   `tfsdk:"instance_id"`
 	SSHHost      types.String  `tfsdk:"ssh_host"`
 	SSHPort      types.Int64   `tfsdk:"ssh_port"`
 	PublicIPAddr types.String  `tfsdk:"public_ipaddr"`
@@ -74,7 +84,7 @@ type instanceResourceModel struct {
 	MachineID    types.Int64   `tfsdk:"machine_id"`
 	GPUName      types.String  `tfsdk:"gpu_name"`
 	NumGPUs      types.Int64   `tfsdk:"num_gpus"`
-	GPUTotalRAM  types.Int64   `tfsdk:"gpu_totalram"`
+	GPUTotalRAM  types.Int64   `tfsdk:"gpu_total_ram"`
 	Geolocation  types.String  `tfsdk:"geolocation"`
 	DPHTotal     types.Float64 `tfsdk:"dph_total"`
 	StartDate    types.Float64 `tfsdk:"start_date"`
@@ -220,17 +230,19 @@ func (m *instanceResourceModel) applyInstance(ctx context.Context, in *vastai.In
 	m.Ports = ports
 
 	// Optional+Computed: only take the API value when the user didn't set one,
-	// otherwise Terraform errors with "inconsistent result after apply".
-	if m.Image.IsUnknown() {
+	// otherwise Terraform errors with "inconsistent result after apply". They
+	// are unknown when unset in a plan and null right after an import.
+	unset := func(v attr.Value) bool { return v.IsUnknown() || v.IsNull() }
+	if unset(m.Image) {
 		m.Image = types.StringValue(deref(in.ImageUUID))
 	}
-	if m.Disk.IsUnknown() {
+	if unset(m.Disk) {
 		m.Disk = types.Float64Value(float64(deref(in.DiskSpace)))
 	}
-	if m.Runtype.IsUnknown() {
+	if unset(m.Runtype) {
 		m.Runtype = types.StringValue(deref(in.ImageRuntype))
 	}
-	if m.TargetState.IsUnknown() {
+	if unset(m.TargetState) {
 		m.TargetState = types.StringValue(deref(in.IntendedStatus))
 	}
 
@@ -243,13 +255,26 @@ func (r *instanceResource) Metadata(_ context.Context, req resource.MetadataRequ
 
 func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Creates a Vast.ai instance by accepting an offer.",
+		MarkdownDescription: "Rents a Vast.ai instance, either from a specific offer (`offer_id`) or from the offers matching a `search_offer` block. With `search_offer`, the provider rents the first available offer from the returned list, so the `order` attribute decides which offer wins.",
+		Blocks: map[string]schema.Block{
+			"search_offer": searchOfferBlock(),
+		},
 		Attributes: map[string]schema.Attribute{
 			"id": schema.Int64Attribute{
-				MarkdownDescription: "ID of the offer (ask) to accept. Changing this forces a new instance.",
-				Required:            true,
+				MarkdownDescription: "ID of the instance (contract).",
+				Computed:            true,
 				PlanModifiers: []planmodifier.Int64{
-					int64planmodifier.RequiresReplace(),
+					int64planmodifier.UseStateForUnknown(),
+				},
+			},
+			"offer_id": schema.Int64Attribute{
+				MarkdownDescription: "ID of the offer (ask) to rent. Mutually exclusive with `search_offer`, which " +
+					"sets this to the offer it rented. Changing a configured value forces a new instance.",
+				Optional: true,
+				Computed: true,
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.UseStateForUnknown(),
+					int64planmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
 			"image": schema.StringAttribute{
@@ -257,8 +282,8 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				Optional:            true,
 				Computed:            true,
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
 					stringplanmodifier.UseStateForUnknown(),
+					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"template_hash_id": schema.StringAttribute{
@@ -277,8 +302,8 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				Optional:            true,
 				Computed:            true,
 				PlanModifiers: []planmodifier.Float64{
-					float64planmodifier.RequiresReplace(),
 					float64planmodifier.UseStateForUnknown(),
+					float64planmodifier.RequiresReplace(),
 				},
 			},
 			"runtype": schema.StringAttribute{
@@ -297,8 +322,8 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 					),
 				},
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
 					stringplanmodifier.UseStateForUnknown(),
+					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"target_state": schema.StringAttribute{
@@ -437,10 +462,6 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 					},
 				},
 			},
-			"instance_id": schema.Int64Attribute{
-				MarkdownDescription: "ID of the instance contract. Used to manage the instance after creation.",
-				Computed:            true,
-			},
 			"ssh_host": schema.StringAttribute{
 				MarkdownDescription: "Hostname to use when connecting to the instance over SSH.",
 				Computed:            true,
@@ -513,6 +534,23 @@ func (r *instanceResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 	}
 }
 
+func (r *instanceResource) ConfigValidators(context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.ExactlyOneOf(path.MatchRoot("offer_id"), path.MatchRoot("search_offer")),
+	}
+}
+
+// ImportState imports an instance by its ID. The offer it was rented from is
+// not recorded by the API, so offer_id and search_offer stay empty.
+func (r *instanceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	instanceID, err := strconv.ParseInt(strings.TrimSpace(req.ID), 10, 64)
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid import ID", fmt.Sprintf("Expected the numeric instance ID, got %q.", req.ID))
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), instanceID)...)
+}
+
 func (r *instanceResource) Configure(
 	ctx context.Context,
 	req resource.ConfigureRequest,
@@ -547,7 +585,14 @@ func (r *instanceResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	contractID, err := r.client.CreateInstance(ctx, model.ID.ValueInt64(), reqBody)
+	var err error
+	offerID := model.OfferID.ValueInt64()
+	var instanceID int64
+	if model.SearchOffer.IsNull() {
+		instanceID, err = r.client.CreateInstance(ctx, offerID, reqBody)
+	} else {
+		offerID, instanceID, err = r.rentMatchingOffer(ctx, model.SearchOffer, reqBody)
+	}
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating an instance", err.Error())
 		return
@@ -556,10 +601,12 @@ func (r *instanceResource) Create(ctx context.Context, req resource.CreateReques
 	// The instance is rented and billing from this point on. Record its ID
 	// before anything else can fail, so that a failed apply still tracks it
 	// and the next plan destroys it instead of leaving it running.
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("instance_id"), contractID)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), instanceID)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("offer_id"), offerID)...)
+	model.OfferID = types.Int64Value(offerID)
 
 	terminalActualStatuses := []string{vastai.ActualStatusExited, vastai.ActualStatusUnknown, vastai.ActualStatusOffline}
-	createdInstance, err := r.client.WaitForIntendedStatus(ctx, contractID, model.TargetState.ValueString(), terminalActualStatuses)
+	createdInstance, err := r.client.WaitForIntendedStatus(ctx, instanceID, model.TargetState.ValueString(), terminalActualStatuses)
 	if err != nil {
 		resp.Diagnostics.AddError("Error waiting for instance to become ready", err.Error())
 		return
@@ -577,14 +624,6 @@ func (r *instanceResource) Read(ctx context.Context, req resource.ReadRequest, r
 	var model instanceResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &model)...)
 	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	if model.InstanceID.IsNull() || model.InstanceID.IsUnknown() {
-		resp.Diagnostics.AddError(
-			"Error reading instance",
-			"The instance has no instance_id in state, so it cannot be looked up through the API.",
-		)
 		return
 	}
 
@@ -616,28 +655,20 @@ func (r *instanceResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	if stateModel.InstanceID.IsNull() || stateModel.InstanceID.IsUnknown() {
-		resp.Diagnostics.AddError(
-			"Error updating instance",
-			"The instance has no instance_id in state, so it cannot be updated through the API.",
-		)
-		return
-	}
-
-	id := stateModel.InstanceID.ValueInt64()
+	instanceID := stateModel.InstanceID.ValueInt64()
 
 	body := vastai.ManageInstanceJSONRequestBody{
 		Label: planModel.Label.ValueStringPointer(),
 		State: enumPtr[vastai.ManageInstanceJSONBodyState](planModel.TargetState),
 	}
 
-	if err := r.client.ManageInstance(ctx, id, body); err != nil {
+	if err := r.client.ManageInstance(ctx, instanceID, body); err != nil {
 		resp.Diagnostics.AddError("Error updating instance", err.Error())
 		return
 	}
 
 	terminalActualStatuses := []string{vastai.ActualStatusUnknown, vastai.ActualStatusOffline}
-	inst, err := r.client.WaitForIntendedStatus(ctx, id, planModel.TargetState.ValueString(), terminalActualStatuses)
+	inst, err := r.client.WaitForIntendedStatus(ctx, instanceID, planModel.TargetState.ValueString(), terminalActualStatuses)
 	if err != nil {
 		resp.Diagnostics.AddError("Error waiting for instance after update", err.Error())
 		return
@@ -658,16 +689,8 @@ func (r *instanceResource) Delete(ctx context.Context, req resource.DeleteReques
 		return
 	}
 
-	if model.InstanceID.IsNull() || model.InstanceID.IsUnknown() {
-		resp.Diagnostics.AddError(
-			"Error destroying instance",
-			"The instance has no instance_id in state, so it cannot be destroyed through the API. Remove it from state manually and destroy it in the Vast.ai console.",
-		)
-		return
-	}
-
-	id := model.InstanceID.ValueInt64()
-	if err := r.client.DestroyInstance(ctx, id); err != nil {
+	instanceID := model.InstanceID.ValueInt64()
+	if err := r.client.DestroyInstance(ctx, instanceID); err != nil {
 		resp.Diagnostics.AddError("Error destroying instance", err.Error())
 		return
 	}
@@ -675,7 +698,7 @@ func (r *instanceResource) Delete(ctx context.Context, req resource.DeleteReques
 	// Destruction is asynchronous. Keep the resource in state until the API
 	// no longer knows the instance, so a destroy that fails server-side is
 	// not silently forgotten while it keeps billing.
-	if _, err := r.client.WaitForIntendedStatus(ctx, id, vastai.IntendedStatusGone, nil); err != nil {
+	if _, err := r.client.WaitForIntendedStatus(ctx, instanceID, vastai.IntendedStatusGone, nil); err != nil {
 		resp.Diagnostics.AddError("Error waiting for instance to be destroyed", err.Error())
 		return
 	}

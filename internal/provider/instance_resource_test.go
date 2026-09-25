@@ -1,11 +1,8 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"regexp"
 	"strconv"
 	"testing"
@@ -34,8 +31,6 @@ func TestAccInstanceResource(t *testing.T) {
 	useTeamAPIKey(t)
 
 	registerSshKey(t)
-	offer := searchCheapestOffer(t)
-	t.Logf("renting offer %d: %s in %s at $%.4f/h", offer.ID, offer.GPUName, offer.Geolocation, offer.DPHTotal)
 
 	var instanceID int64
 
@@ -48,7 +43,7 @@ func TestAccInstanceResource(t *testing.T) {
 		Steps: []resource.TestStep{
 			// rent the offer and wait until the instance is running
 			{
-				Config: instanceResourceConfig(offer.ID, testAccInstanceLabel),
+				Config: instanceResourceConfig(testAccInstanceLabel),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{
 						plancheck.ExpectResourceAction(testAccInstanceResourceName, plancheck.ResourceActionCreate),
@@ -56,14 +51,14 @@ func TestAccInstanceResource(t *testing.T) {
 				},
 				ConfigStateChecks: []statecheck.StateCheck{
 					// configured
-					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("id"), knownvalue.Int64Exact(offer.ID)),
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("image"), knownvalue.StringExact(testAccInstanceImage)),
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("disk"), knownvalue.Float64Exact(testAccInstanceDisk)),
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("runtype"), knownvalue.StringExact("ssh")),
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("label"), knownvalue.StringExact(testAccInstanceLabel)),
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("vm"), knownvalue.Null()),
 					// computed from the running instance
-					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("instance_id"), knownvalue.NotNull()),
+					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("id"), knownvalue.NotNull()),
+					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("offer_id"), knownvalue.NotNull()),
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("machine_id"), knownvalue.NotNull()),
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("num_gpus"), knownvalue.Int64Exact(1)),
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("gpu_name"), nonEmpty),
@@ -76,7 +71,7 @@ func TestAccInstanceResource(t *testing.T) {
 			},
 			// reapply, idempotency check
 			{
-				Config: instanceResourceConfig(offer.ID, testAccInstanceLabel),
+				Config: instanceResourceConfig(testAccInstanceLabel),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{
 						plancheck.ExpectEmptyPlan(),
@@ -85,7 +80,7 @@ func TestAccInstanceResource(t *testing.T) {
 			},
 			// relabel and stop in place, in one update: same contract, no replacement
 			{
-				Config: instanceResourceConfigWithState(offer.ID, testAccInstanceRelabel, "stopped"),
+				Config: instanceResourceConfigWithState(testAccInstanceRelabel, "stopped"),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{
 						plancheck.ExpectResourceAction(testAccInstanceResourceName, plancheck.ResourceActionUpdate),
@@ -101,7 +96,7 @@ func TestAccInstanceResource(t *testing.T) {
 			},
 			// start again in place
 			{
-				Config: instanceResourceConfigWithState(offer.ID, testAccInstanceRelabel, "running"),
+				Config: instanceResourceConfigWithState(testAccInstanceRelabel, "running"),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{
 						plancheck.ExpectResourceAction(testAccInstanceResourceName, plancheck.ResourceActionUpdate),
@@ -115,27 +110,28 @@ func TestAccInstanceResource(t *testing.T) {
 	})
 }
 
-func instanceResourceConfig(offerID int64, label string) string {
-	return fmt.Sprintf(
-		`resource "vastai_instance" "test" {
-		  id      = %d
-		  image   = %q
-		  disk    = %d
-		  runtype = "ssh"
-		  label   = %q
-		}`, offerID, testAccInstanceImage, testAccInstanceDisk, label)
+func instanceResourceConfig(label string) string {
+	return instanceResourceConfigWithState(label, "running")
 }
 
-func instanceResourceConfigWithState(offerID int64, label, targetState string) string {
+func instanceResourceConfigWithState(label, targetState string) string {
 	return fmt.Sprintf(
 		`resource "vastai_instance" "test" {
-		  id           = %d
 		  image        = %q
 		  disk         = %d
 		  runtype      = "ssh"
 		  label        = %q
 		  target_state = %q
-		}`, offerID, testAccInstanceImage, testAccInstanceDisk, label, targetState)
+
+		  search_offer {
+		    verified    = { eq = true }
+		    datacenter  = { eq = true }
+		    vms_enabled = { eq = true }
+		    num_gpus    = { eq = 1 }
+		    disk_space  = { gte = %d }
+		    reliability = { gte = 0.94 }
+		  }
+		}`, testAccInstanceImage, testAccInstanceDisk, label, targetState, testAccInstanceDisk)
 }
 
 // registerSshKey uploads a throwaway SSH key for the duration of the test and
@@ -161,67 +157,14 @@ func registerSshKey(t *testing.T) {
 	})
 }
 
-type offer struct {
-	ID          int64   `json:"id"`
-	GPUName     string  `json:"gpu_name"`
-	Geolocation string  `json:"geolocation"`
-	DPHTotal    float64 `json:"dph_total"`
-}
-
-func searchCheapestOffer(t *testing.T) offer {
-	t.Helper()
-
-	op := func(operator string, value any) map[string]any {
-		return map[string]any{operator: value}
-	}
-
-	query, err := json.Marshal(map[string]any{
-		"type":        vastai.SearchOffersJSONBodyTypeOndemand,
-		"limit":       1,
-		"order":       [][]string{{"dph_total", "asc"}},
-		"verified":    op("eq", true),
-		"datacenter":  op("eq", true),
-		"rentable":    op("eq", true),
-		"rented":      op("eq", false),
-		"vms_enabled": op("eq", true),
-		"num_gpus":    op("in", []int{1}),
-		"reliability": op("gte", 0.94),
-	})
-	if err != nil {
-		t.Fatalf("encoding offer search query: %v", err)
-	}
-
-	r, err := newVastAiClient(t).SearchOffersWithBodyWithResponse(t.Context(), "application/json", bytes.NewReader(query))
-	if err != nil {
-		t.Fatalf("searching offers: %v", err)
-	}
-	if r.StatusCode() != http.StatusOK {
-		t.Fatalf("searching offers: status %d: %s", r.StatusCode(), r.Body)
-	}
-
-	var out struct {
-		Offers []offer `json:"offers"`
-	}
-
-	if err := json.Unmarshal(r.Body, &out); err != nil {
-		t.Fatalf("decoding offer search response: %v: %s", err, r.Body)
-	}
-
-	if len(out.Offers) == 0 {
-		t.Fatal("offer search returned no offers")
-	}
-
-	return out.Offers[0]
-}
-
 func instanceIDFromState(s *terraform.State) (int64, error) {
 	rs, ok := s.RootModule().Resources[testAccInstanceResourceName]
 	if !ok {
 		return 0, fmt.Errorf("%s not found in state", testAccInstanceResourceName)
 	}
-	id, err := strconv.ParseInt(rs.Primary.Attributes["instance_id"], 10, 64)
+	id, err := strconv.ParseInt(rs.Primary.Attributes["id"], 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("parsing instance_id %q: %w", rs.Primary.Attributes["instance_id"], err)
+		return 0, fmt.Errorf("parsing id %q: %w", rs.Primary.Attributes["id"], err)
 	}
 	return id, nil
 }
@@ -254,9 +197,9 @@ func checkIfInstanceWasDestroyed(t *testing.T) resource.TestCheckFunc {
 			if rs.Type != "vastai_instance" {
 				continue
 			}
-			id, err := strconv.ParseInt(rs.Primary.Attributes["instance_id"], 10, 64)
+			id, err := strconv.ParseInt(rs.Primary.Attributes["id"], 10, 64)
 			if err != nil {
-				return fmt.Errorf("parsing instance_id %q: %w", rs.Primary.Attributes["instance_id"], err)
+				return fmt.Errorf("parsing id %q: %w", rs.Primary.Attributes["id"], err)
 			}
 			// Destruction is asynchronous, so a lookup right after destroying
 			// may still return the instance.

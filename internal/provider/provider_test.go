@@ -19,6 +19,9 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 
 func testAccPreCheck(t *testing.T) {
 	t.Helper()
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("acceptance tests are skipped unless TF_ACC is set")
+	}
 	if personalAPIKey() == "" || teamAPIKey() == "" {
 		t.Fatal("VASTAI_PERSONAL_API_KEY and VASTAI_TEAM_API_KEY must be set for acceptance tests")
 	}

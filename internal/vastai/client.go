@@ -1,6 +1,7 @@
 package vastai
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -37,7 +38,12 @@ var actualStatusFor = map[string]string{
 
 const pollInterval = 10 * time.Second
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound = errors.New("not found")
+	// ErrOfferUnavailable is returned by CreateInstance when the offer was
+	// rented by someone else or withdrawn between the search and the rent.
+	ErrOfferUnavailable = errors.New("offer no longer available")
+)
 
 type Client struct {
 	*ClientWithResponses
@@ -144,40 +150,85 @@ func hasStatus(err error, status int) bool {
 	return errors.As(err, &e) && e.StatusCode == status
 }
 
-func (c *Client) CreateInstance(ctx context.Context, askID int64, body CreateInstanceJSONRequestBody) (int64, error) {
-	r, err := c.CreateInstanceWithResponse(ctx, int(askID), body)
+// Vast.ai uses three different IDs that are easy to mix up:
+//
+//   - offer ID (the API also says "ask"): a rentable slot on the marketplace.
+//     It is consumed by renting it and never appears on the instance again.
+//   - instance ID (the API also says "contract"): the rented instance. This is
+//     what every instance endpoint takes and what the resource stores as `id`.
+//   - machine ID: the physical host an offer or instance lives on.
+//
+// Offer is the subset of a marketplace offer the provider uses.
+type Offer struct {
+	OfferID     int64   `json:"id"`
+	MachineID   int64   `json:"machine_id"`
+	GPUName     string  `json:"gpu_name"`
+	NumGPUs     int64   `json:"num_gpus"`
+	DPHTotal    float64 `json:"dph_total"`
+	Geolocation string  `json:"geolocation"`
+}
+
+// SearchOffers queries the marketplace. The query uses the API's own filter
+// syntax, e.g. {"gpu_name": {"eq": "RTX 4090"}, "limit": 5}, see
+// https://docs.vast.ai/api-reference/search/search-offers.
+func (c *Client) SearchOffers(ctx context.Context, query map[string]any) ([]Offer, error) {
+	body, err := json.Marshal(query)
+	if err != nil {
+		return nil, fmt.Errorf("searching offers: encoding query: %w", err)
+	}
+	r, err := c.SearchOffersWithBodyWithResponse(ctx, "application/json", bytes.NewReader(body))
 	if err := check(r, err); err != nil {
-		return 0, fmt.Errorf("creating instance from offer %d: %w", askID, err)
+		return nil, fmt.Errorf("searching offers: %w", err)
+	}
+	var out struct {
+		Offers []Offer `json:"offers"`
+	}
+	if err := json.Unmarshal(r.Body, &out); err != nil {
+		return nil, fmt.Errorf("searching offers: decoding response: %w: %s", err, r.Body)
+	}
+	return out.Offers, nil
+}
+
+// CreateInstance rents an offer and returns the ID of the new instance.
+func (c *Client) CreateInstance(ctx context.Context, offerID int64, body CreateInstanceJSONRequestBody) (instanceID int64, err error) {
+	r, err := c.CreateInstanceWithResponse(ctx, int(offerID), body)
+	if err := check(r, err); err != nil {
+		// A taken offer answers 404 "no_such_ask"; with cancel_unavail it
+		// answers 410 when the instance could not start on it.
+		if hasStatus(err, http.StatusNotFound) || hasStatus(err, http.StatusGone) || hasCode(err, "no_such_ask") {
+			err = fmt.Errorf("%w: %w", ErrOfferUnavailable, err)
+		}
+		return 0, fmt.Errorf("creating instance from offer %d: %w", offerID, err)
 	}
 	if r.JSON200 == nil || r.JSON200.NewContract == nil {
-		return 0, fmt.Errorf("creating instance from offer %d: no contract ID in response: %s", askID, r.Body)
+		return 0, fmt.Errorf("creating instance from offer %d: no instance ID in response: %s", offerID, r.Body)
 	}
 	return int64(*r.JSON200.NewContract), nil
 }
 
-func (c *Client) ShowInstance(ctx context.Context, id int64) (*Instance, error) {
-	r, err := c.ShowInstanceWithResponse(ctx, int(id))
+func (c *Client) ShowInstance(ctx context.Context, instanceID int64) (*Instance, error) {
+	r, err := c.ShowInstanceWithResponse(ctx, int(instanceID))
 	if err := check(r, err); err != nil {
-		return nil, fmt.Errorf("showing instance %d: %w", id, err)
+		return nil, fmt.Errorf("showing instance %d: %w", instanceID, err)
 	}
 	if r.JSON200 == nil || r.JSON200.Instances == nil || r.JSON200.Instances.ID == nil {
-		return nil, fmt.Errorf("showing instance %d: %w", id, ErrNotFound)
+		return nil, fmt.Errorf("showing instance %d: %w", instanceID, ErrNotFound)
 	}
 	return r.JSON200.Instances, nil
 }
 
-func (c *Client) DestroyInstance(ctx context.Context, id int64) error {
-	r, err := c.DestroyInstanceWithResponse(ctx, int(id), withJSONBody("{}"))
+func (c *Client) DestroyInstance(ctx context.Context, instanceID int64) error {
+	r, err := c.DestroyInstanceWithResponse(ctx, int(instanceID), withJSONBody("{}"))
 	if err := check(r, err); err != nil && !errors.Is(err, ErrNotFound) {
-		return fmt.Errorf("destroying instance %d: %w", id, err)
+		return fmt.Errorf("destroying instance %d: %w", instanceID, err)
 	}
 	return nil
 }
 
-func (c *Client) ManageInstance(ctx context.Context, id int64, body ManageInstanceJSONRequestBody) error {
-	r, err := c.ManageInstanceWithResponse(ctx, int(id), body)
+func (c *Client) ManageInstance(ctx context.Context, instanceID int64, body ManageInstanceJSONRequestBody) error {
+	r, err := c.ManageInstanceWithResponse(ctx, int(instanceID), body)
 	if err := check(r, err); err != nil {
-		return fmt.Errorf("managing instance %d: %w", id, err)
+		return fmt.Errorf("managing instance %d: %w", instanceID, err)
 	}
 	return nil
 }
@@ -191,13 +242,13 @@ func withJSONBody(body string) RequestEditorFn {
 	}
 }
 
-func (c *Client) WaitForIntendedStatus(ctx context.Context, id int64, intendedStatus string, terminalActualStatuses []string) (*Instance, error) {
+func (c *Client) WaitForIntendedStatus(ctx context.Context, instanceID int64, intendedStatus string, terminalActualStatuses []string) (*Instance, error) {
 	if intendedStatus == "" {
 		intendedStatus = IntendedStatusRunning
 	}
 	wantActualStatus, ok := actualStatusFor[intendedStatus]
 	if !ok && intendedStatus != IntendedStatusGone {
-		return nil, fmt.Errorf("waiting for instance %d: unknown intended status %q", id, intendedStatus)
+		return nil, fmt.Errorf("waiting for instance %d: unknown intended status %q", instanceID, intendedStatus)
 	}
 
 	ticker := time.NewTicker(pollInterval)
@@ -205,7 +256,7 @@ func (c *Client) WaitForIntendedStatus(ctx context.Context, id int64, intendedSt
 
 	var last *Instance
 	for {
-		inst, err := c.ShowInstance(ctx, id)
+		inst, err := c.ShowInstance(ctx, instanceID)
 		switch {
 		case hasStatus(err, http.StatusTooManyRequests):
 		case errors.Is(err, ErrNotFound) && intendedStatus == IntendedStatusGone:
@@ -225,13 +276,13 @@ func (c *Client) WaitForIntendedStatus(ctx context.Context, id int64, intendedSt
 				if msg != "" {
 					msg = ": " + msg
 				}
-				return inst, fmt.Errorf("instance %d entered actual status %q and will not reach %q%s", id, actualStatus, wantActualStatus, msg)
+				return inst, fmt.Errorf("instance %d entered actual status %q and will not reach %q%s", instanceID, actualStatus, wantActualStatus, msg)
 			}
 		}
 
 		select {
 		case <-ctx.Done():
-			return last, fmt.Errorf("waiting for instance %d to reach intended status %q: %w", id, intendedStatus, ctx.Err())
+			return last, fmt.Errorf("waiting for instance %d to reach intended status %q: %w", instanceID, intendedStatus, ctx.Err())
 		case <-ticker.C:
 		}
 	}
