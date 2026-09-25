@@ -22,8 +22,8 @@ const (
 	testAccInstanceResourceName = "vastai_instance.test"
 	testAccInstanceImage        = "docker.io/vastai/kvm:@vastai-automatic-tag"
 	testAccInstanceDisk         = 150
-	testAccInstanceLabel        = "tf-acc-instance"
-	testAccInstanceRelabel      = "tf-acc-instance-renamed"
+	testAccInstanceLabel        = testAccResourcePrefix + "instance"
+	testAccInstanceRelabel      = testAccResourcePrefix + "instance-renamed"
 )
 
 func TestAccInstanceResource(t *testing.T) {
@@ -55,7 +55,7 @@ func TestAccInstanceResource(t *testing.T) {
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("disk"), knownvalue.Float64Exact(testAccInstanceDisk)),
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("runtype"), knownvalue.StringExact("ssh")),
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("label"), knownvalue.StringExact(testAccInstanceLabel)),
-					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("vm"), knownvalue.Null()),
+					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("vm"), knownvalue.Bool(true)),
 					// computed from the running instance
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("id"), knownvalue.NotNull()),
 					statecheck.ExpectKnownValue(testAccInstanceResourceName, tfjsonpath.New("offer_id"), knownvalue.NotNull()),
@@ -120,6 +120,7 @@ func instanceResourceConfigWithState(label, targetState string) string {
 		  image        = %q
 		  disk         = %d
 		  runtype      = "ssh"
+		  vm           = true
 		  label        = %q
 		  target_state = %q
 
@@ -184,6 +185,10 @@ func checkInstanceViaApi(t *testing.T, wantActualStatus, wantLabel string, gotID
 		}
 		if label := inst.Label.GetOrEmpty(); label != wantLabel {
 			return fmt.Errorf("instance %d has label %q, want %q", id, label, wantLabel)
+		}
+		// Updates must keep the contract rented in the first step.
+		if *gotID != 0 && *gotID != id {
+			return fmt.Errorf("instance was replaced: id %d, want %d", id, *gotID)
 		}
 		*gotID = id
 		return nil

@@ -73,13 +73,13 @@ resource "vastai_instance" "pinned" {
 - `onstart` (String) Commands to run when the instance starts. Limited to 4048 characters.
 - `python_utf8` (Boolean) Set Python's locale to C.UTF-8.
 - `runtype` (String) Launch mode for the instance. Defaults to `ssh` unless `args` or `args_str` is set.
-- `search_offer` (Block, Optional) Search the marketplace for an offer at create time instead of naming one with `offer_id`. Every filter is an object of operators as in the Vast.ai API, e.g. `reliability = { gte = 0.98 }`. Number filters accept `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in` and `notin`, string filters `eq`, `neq`, `in` and `notin`, and boolean filters `eq` and `neq`. The provider rents the first available offer from the returned list, sorted by `order`; the rented one is stored in `offer_id`. Changing the criteria forces a new instance.
+- `search_offer` (Block, Optional) Search the marketplace for an offer at create time instead of naming one with `offer_id`. Every filter is an object of operators as in the Vast.ai API, e.g. `reliability = { gte = 0.98 }`. Number filters accept `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in` and `notin`, string filters `eq`, `neq`, `in` and `notin`, and boolean filters `eq` and `neq`. The provider rents the first available offer from the returned list, sorted by `order`; the rented one is stored in `offer_id`. Changing the criteria forces a new instance. (see [below for nested schema](#nestedblock--search_offer))
 - `target_state` (String) Desired state of the instance, `running` (the default) or `stopped`.
 - `template_hash_id` (String) Hash ID of a template to use as base configuration.
 - `use_jupyter_lab` (Boolean) Launch the instance with Jupyter Lab instead of Jupyter Notebook.
 - `user` (String) User to use with `docker create`. Breaks some images.
 - `vm` (Boolean) Whether this is a VM instance rather than a Docker instance. Requires an SSH key on the account before creation.
-- `volume_info` (Attributes) Volume to create or link to the instance.
+- `volume_info` (Attributes) Volume to create or link to the instance. (see [below for nested schema](#nestedatt--volume_info))
 
 ### Read-Only
 
@@ -97,64 +97,734 @@ resource "vastai_instance" "pinned" {
 - `ssh_port` (Number) Port to use when connecting to the instance over SSH.
 - `start_date` (Number) Time the instance was created, as a Unix timestamp in seconds.
 
+<a id="nestedblock--search_offer"></a>
 ### Nested Schema for `search_offer`
 
 Optional:
 
 - `allocated_storage` (Number) Disk size in GB used to price the offers. Defaults to 8.
-- `bw_nvlink` (Attributes) NVLink interconnect bandwidth in GB/s.
-- `compute_cap` (Attributes) CUDA compute capability x 100, e.g. 750 for 7.5.
-- `cpu_arch` (Attributes) Host CPU architecture, e.g. `amd64`.
-- `cpu_cores` (Attributes) Number of virtual CPUs.
-- `cpu_cores_effective` (Attributes) Effective vCPU count for the offer.
-- `cpu_ghz` (Attributes) CPU clock speed in GHz.
-- `cpu_ram` (Attributes) CPU RAM in MB.
-- `cuda_max_good` (Attributes) Maximum supported CUDA version.
-- `datacenter` (Attributes) Datacenter hosts only.
-- `direct_port_count` (Attributes) Number of direct ports.
-- `disk_bw` (Attributes) Disk read bandwidth in MB/s.
-- `disk_space` (Attributes) Disk space in GB.
-- `dlperf` (Attributes) Deep learning performance score.
-- `dlperf_per_dphtotal` (Attributes) DLPerf per dollar per hour.
-- `dph_total` (Attributes) Total rental cost in dollars per hour.
-- `driver_version` (Attributes) NVIDIA driver version, e.g. `535.129.03`.
-- `duration` (Attributes) Time the offer stays available for rent, in seconds.
-- `external` (Attributes) Include external offers in addition to datacenter offers.
-- `flops_per_dphtotal` (Attributes) TFLOPs per dollar per hour.
-- `geolocation` (Attributes) Two-letter country code of the host.
-- `gpu_arch` (Attributes) GPU architecture, e.g. `nvidia` or `amd`.
-- `gpu_display_active` (Attributes) Whether the GPU has a display attached.
-- `gpu_frac` (Attributes) Fraction of the machine's GPUs in the offer.
-- `gpu_max_power` (Attributes) GPU power limit in watts.
-- `gpu_max_temp` (Attributes) GPU temperature limit in Celsius.
-- `gpu_mem_bw` (Attributes) GPU memory bandwidth in GB/s.
-- `gpu_name` (Attributes) GPU model, e.g. `RTX 4090`.
-- `gpu_ram` (Attributes) GPU RAM per GPU in MB.
-- `gpu_total_ram` (Attributes) Total GPU RAM across all GPUs in MB.
-- `has_avx` (Attributes) CPU supports AVX (`1`) or not (`0`).
-- `host_id` (Attributes) Host user ID.
-- `inet_down` (Attributes) Download bandwidth in Mbps.
-- `inet_down_cost` (Attributes) Download bandwidth cost in dollars per GB.
-- `inet_up` (Attributes) Upload bandwidth in Mbps.
-- `inet_up_cost` (Attributes) Upload bandwidth cost in dollars per GB.
+- `bw_nvlink` (Attributes) NVLink interconnect bandwidth in GB/s. (see [below for nested schema](#nestedatt--search_offer--bw_nvlink))
+- `compute_cap` (Attributes) CUDA compute capability x 100, e.g. 750 for 7.5. (see [below for nested schema](#nestedatt--search_offer--compute_cap))
+- `cpu_arch` (Attributes) Host CPU architecture, e.g. `amd64`. (see [below for nested schema](#nestedatt--search_offer--cpu_arch))
+- `cpu_cores` (Attributes) Number of virtual CPUs. (see [below for nested schema](#nestedatt--search_offer--cpu_cores))
+- `cpu_cores_effective` (Attributes) Effective vCPU count for the offer. (see [below for nested schema](#nestedatt--search_offer--cpu_cores_effective))
+- `cpu_ghz` (Attributes) CPU clock speed in GHz. (see [below for nested schema](#nestedatt--search_offer--cpu_ghz))
+- `cpu_ram` (Attributes) CPU RAM in MB. (see [below for nested schema](#nestedatt--search_offer--cpu_ram))
+- `cuda_max_good` (Attributes) Maximum supported CUDA version. (see [below for nested schema](#nestedatt--search_offer--cuda_max_good))
+- `datacenter` (Attributes) Datacenter hosts only. (see [below for nested schema](#nestedatt--search_offer--datacenter))
+- `direct_port_count` (Attributes) Number of direct ports. (see [below for nested schema](#nestedatt--search_offer--direct_port_count))
+- `disk_bw` (Attributes) Disk read bandwidth in MB/s. (see [below for nested schema](#nestedatt--search_offer--disk_bw))
+- `disk_space` (Attributes) Disk space in GB. (see [below for nested schema](#nestedatt--search_offer--disk_space))
+- `dlperf` (Attributes) Deep learning performance score. (see [below for nested schema](#nestedatt--search_offer--dlperf))
+- `dlperf_per_dphtotal` (Attributes) DLPerf per dollar per hour. (see [below for nested schema](#nestedatt--search_offer--dlperf_per_dphtotal))
+- `dph_total` (Attributes) Total rental cost in dollars per hour. (see [below for nested schema](#nestedatt--search_offer--dph_total))
+- `driver_version` (Attributes) NVIDIA driver version, e.g. `535.129.03`. (see [below for nested schema](#nestedatt--search_offer--driver_version))
+- `duration` (Attributes) Time the offer stays available for rent, in seconds. (see [below for nested schema](#nestedatt--search_offer--duration))
+- `external` (Attributes) Include external offers in addition to datacenter offers. (see [below for nested schema](#nestedatt--search_offer--external))
+- `flops_per_dphtotal` (Attributes) TFLOPs per dollar per hour. (see [below for nested schema](#nestedatt--search_offer--flops_per_dphtotal))
+- `geolocation` (Attributes) Two-letter country code of the host. (see [below for nested schema](#nestedatt--search_offer--geolocation))
+- `gpu_arch` (Attributes) GPU architecture, e.g. `nvidia` or `amd`. (see [below for nested schema](#nestedatt--search_offer--gpu_arch))
+- `gpu_display_active` (Attributes) Whether the GPU has a display attached. (see [below for nested schema](#nestedatt--search_offer--gpu_display_active))
+- `gpu_frac` (Attributes) Fraction of the machine's GPUs in the offer. (see [below for nested schema](#nestedatt--search_offer--gpu_frac))
+- `gpu_max_power` (Attributes) GPU power limit in watts. (see [below for nested schema](#nestedatt--search_offer--gpu_max_power))
+- `gpu_max_temp` (Attributes) GPU temperature limit in Celsius. (see [below for nested schema](#nestedatt--search_offer--gpu_max_temp))
+- `gpu_mem_bw` (Attributes) GPU memory bandwidth in GB/s. (see [below for nested schema](#nestedatt--search_offer--gpu_mem_bw))
+- `gpu_name` (Attributes) GPU model, e.g. `RTX 4090`. (see [below for nested schema](#nestedatt--search_offer--gpu_name))
+- `gpu_ram` (Attributes) GPU RAM per GPU in MB. (see [below for nested schema](#nestedatt--search_offer--gpu_ram))
+- `gpu_total_ram` (Attributes) Total GPU RAM across all GPUs in MB. (see [below for nested schema](#nestedatt--search_offer--gpu_total_ram))
+- `has_avx` (Attributes) CPU supports AVX (`1`) or not (`0`). (see [below for nested schema](#nestedatt--search_offer--has_avx))
+- `host_id` (Attributes) Host user ID. (see [below for nested schema](#nestedatt--search_offer--host_id))
+- `inet_down` (Attributes) Download bandwidth in Mbps. (see [below for nested schema](#nestedatt--search_offer--inet_down))
+- `inet_down_cost` (Attributes) Download bandwidth cost in dollars per GB. (see [below for nested schema](#nestedatt--search_offer--inet_down_cost))
+- `inet_up` (Attributes) Upload bandwidth in Mbps. (see [below for nested schema](#nestedatt--search_offer--inet_up))
+- `inet_up_cost` (Attributes) Upload bandwidth cost in dollars per GB. (see [below for nested schema](#nestedatt--search_offer--inet_up_cost))
 - `limit` (Number) How many matching offers to fetch and try in turn before giving up. Defaults to 5. Raise it when many instances are created at once, since each one takes an offer.
-- `machine_id` (Attributes) ID of a specific host machine.
-- `min_bid` (Attributes) Minimum bid price in dollars per hour.
-- `mobo_name` (Attributes) Motherboard name.
-- `num_gpus` (Attributes) Number of GPUs.
+- `machine_id` (Attributes) ID of a specific host machine. (see [below for nested schema](#nestedatt--search_offer--machine_id))
+- `min_bid` (Attributes) Minimum bid price in dollars per hour. (see [below for nested schema](#nestedatt--search_offer--min_bid))
+- `mobo_name` (Attributes) Motherboard name. (see [below for nested schema](#nestedatt--search_offer--mobo_name))
+- `num_gpus` (Attributes) Number of GPUs. (see [below for nested schema](#nestedatt--search_offer--num_gpus))
 - `order` (List of List of String) Sort order as `[field, "asc"|"desc"]` pairs. Defaults to `[["dph_total", "asc"]]`, cheapest first.
-- `os_version` (Attributes) Host Ubuntu version.
-- `pci_gen` (Attributes) PCIe generation.
-- `pcie_bw` (Attributes) PCIe bandwidth between CPU and GPU.
-- `reliability` (Attributes) Host reliability score between 0 and 1.
-- `static_ip` (Attributes) Hosts with a static IP address.
-- `storage_cost` (Attributes) Storage cost in dollars per GB per month.
-- `total_flops` (Attributes) Total GPU compute performance in TFLOPs.
+- `os_version` (Attributes) Host Ubuntu version. (see [below for nested schema](#nestedatt--search_offer--os_version))
+- `pci_gen` (Attributes) PCIe generation. (see [below for nested schema](#nestedatt--search_offer--pci_gen))
+- `pcie_bw` (Attributes) PCIe bandwidth between CPU and GPU. (see [below for nested schema](#nestedatt--search_offer--pcie_bw))
+- `reliability` (Attributes) Host reliability score between 0 and 1. (see [below for nested schema](#nestedatt--search_offer--reliability))
+- `static_ip` (Attributes) Hosts with a static IP address. (see [below for nested schema](#nestedatt--search_offer--static_ip))
+- `storage_cost` (Attributes) Storage cost in dollars per GB per month. (see [below for nested schema](#nestedatt--search_offer--storage_cost))
+- `total_flops` (Attributes) Total GPU compute performance in TFLOPs. (see [below for nested schema](#nestedatt--search_offer--total_flops))
 - `type` (String) Offer type: `ondemand` (the default), `bid` or `reserved`.
-- `verification` (Attributes) Verification status: `verified`, `deverified` or `unverified`.
-- `verified` (Attributes) Verified hosts only.
-- `vms_enabled` (Attributes) Hosts that can run VM instances. Set when `vm` is `true`.
+- `verification` (Attributes) Verification status: `verified`, `deverified` or `unverified`. (see [below for nested schema](#nestedatt--search_offer--verification))
+- `verified` (Attributes) Verified hosts only. (see [below for nested schema](#nestedatt--search_offer--verified))
+- `vms_enabled` (Attributes) Hosts that can run VM instances. Set when `vm` is `true`. (see [below for nested schema](#nestedatt--search_offer--vms_enabled))
 
+<a id="nestedatt--search_offer--bw_nvlink"></a>
+### Nested Schema for `search_offer.bw_nvlink`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--compute_cap"></a>
+### Nested Schema for `search_offer.compute_cap`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--cpu_arch"></a>
+### Nested Schema for `search_offer.cpu_arch`
+
+Optional:
+
+- `eq` (String)
+- `in` (List of String)
+- `neq` (String)
+- `notin` (List of String)
+
+
+<a id="nestedatt--search_offer--cpu_cores"></a>
+### Nested Schema for `search_offer.cpu_cores`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--cpu_cores_effective"></a>
+### Nested Schema for `search_offer.cpu_cores_effective`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--cpu_ghz"></a>
+### Nested Schema for `search_offer.cpu_ghz`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--cpu_ram"></a>
+### Nested Schema for `search_offer.cpu_ram`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--cuda_max_good"></a>
+### Nested Schema for `search_offer.cuda_max_good`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--datacenter"></a>
+### Nested Schema for `search_offer.datacenter`
+
+Optional:
+
+- `eq` (Boolean)
+- `neq` (Boolean)
+
+
+<a id="nestedatt--search_offer--direct_port_count"></a>
+### Nested Schema for `search_offer.direct_port_count`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--disk_bw"></a>
+### Nested Schema for `search_offer.disk_bw`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--disk_space"></a>
+### Nested Schema for `search_offer.disk_space`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--dlperf"></a>
+### Nested Schema for `search_offer.dlperf`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--dlperf_per_dphtotal"></a>
+### Nested Schema for `search_offer.dlperf_per_dphtotal`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--dph_total"></a>
+### Nested Schema for `search_offer.dph_total`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--driver_version"></a>
+### Nested Schema for `search_offer.driver_version`
+
+Optional:
+
+- `eq` (String)
+- `in` (List of String)
+- `neq` (String)
+- `notin` (List of String)
+
+
+<a id="nestedatt--search_offer--duration"></a>
+### Nested Schema for `search_offer.duration`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--external"></a>
+### Nested Schema for `search_offer.external`
+
+Optional:
+
+- `eq` (Boolean)
+- `neq` (Boolean)
+
+
+<a id="nestedatt--search_offer--flops_per_dphtotal"></a>
+### Nested Schema for `search_offer.flops_per_dphtotal`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--geolocation"></a>
+### Nested Schema for `search_offer.geolocation`
+
+Optional:
+
+- `eq` (String)
+- `in` (List of String)
+- `neq` (String)
+- `notin` (List of String)
+
+
+<a id="nestedatt--search_offer--gpu_arch"></a>
+### Nested Schema for `search_offer.gpu_arch`
+
+Optional:
+
+- `eq` (String)
+- `in` (List of String)
+- `neq` (String)
+- `notin` (List of String)
+
+
+<a id="nestedatt--search_offer--gpu_display_active"></a>
+### Nested Schema for `search_offer.gpu_display_active`
+
+Optional:
+
+- `eq` (Boolean)
+- `neq` (Boolean)
+
+
+<a id="nestedatt--search_offer--gpu_frac"></a>
+### Nested Schema for `search_offer.gpu_frac`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--gpu_max_power"></a>
+### Nested Schema for `search_offer.gpu_max_power`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--gpu_max_temp"></a>
+### Nested Schema for `search_offer.gpu_max_temp`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--gpu_mem_bw"></a>
+### Nested Schema for `search_offer.gpu_mem_bw`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--gpu_name"></a>
+### Nested Schema for `search_offer.gpu_name`
+
+Optional:
+
+- `eq` (String)
+- `in` (List of String)
+- `neq` (String)
+- `notin` (List of String)
+
+
+<a id="nestedatt--search_offer--gpu_ram"></a>
+### Nested Schema for `search_offer.gpu_ram`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--gpu_total_ram"></a>
+### Nested Schema for `search_offer.gpu_total_ram`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--has_avx"></a>
+### Nested Schema for `search_offer.has_avx`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--host_id"></a>
+### Nested Schema for `search_offer.host_id`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--inet_down"></a>
+### Nested Schema for `search_offer.inet_down`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--inet_down_cost"></a>
+### Nested Schema for `search_offer.inet_down_cost`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--inet_up"></a>
+### Nested Schema for `search_offer.inet_up`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--inet_up_cost"></a>
+### Nested Schema for `search_offer.inet_up_cost`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--machine_id"></a>
+### Nested Schema for `search_offer.machine_id`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--min_bid"></a>
+### Nested Schema for `search_offer.min_bid`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--mobo_name"></a>
+### Nested Schema for `search_offer.mobo_name`
+
+Optional:
+
+- `eq` (String)
+- `in` (List of String)
+- `neq` (String)
+- `notin` (List of String)
+
+
+<a id="nestedatt--search_offer--num_gpus"></a>
+### Nested Schema for `search_offer.num_gpus`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--os_version"></a>
+### Nested Schema for `search_offer.os_version`
+
+Optional:
+
+- `eq` (String)
+- `in` (List of String)
+- `neq` (String)
+- `notin` (List of String)
+
+
+<a id="nestedatt--search_offer--pci_gen"></a>
+### Nested Schema for `search_offer.pci_gen`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--pcie_bw"></a>
+### Nested Schema for `search_offer.pcie_bw`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--reliability"></a>
+### Nested Schema for `search_offer.reliability`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--static_ip"></a>
+### Nested Schema for `search_offer.static_ip`
+
+Optional:
+
+- `eq` (Boolean)
+- `neq` (Boolean)
+
+
+<a id="nestedatt--search_offer--storage_cost"></a>
+### Nested Schema for `search_offer.storage_cost`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--total_flops"></a>
+### Nested Schema for `search_offer.total_flops`
+
+Optional:
+
+- `eq` (Number)
+- `gt` (Number)
+- `gte` (Number)
+- `in` (List of Number)
+- `lt` (Number)
+- `lte` (Number)
+- `neq` (Number)
+- `notin` (List of Number)
+
+
+<a id="nestedatt--search_offer--verification"></a>
+### Nested Schema for `search_offer.verification`
+
+Optional:
+
+- `eq` (String)
+- `in` (List of String)
+- `neq` (String)
+- `notin` (List of String)
+
+
+<a id="nestedatt--search_offer--verified"></a>
+### Nested Schema for `search_offer.verified`
+
+Optional:
+
+- `eq` (Boolean)
+- `neq` (Boolean)
+
+
+<a id="nestedatt--search_offer--vms_enabled"></a>
+### Nested Schema for `search_offer.vms_enabled`
+
+Optional:
+
+- `eq` (Boolean)
+- `neq` (Boolean)
+
+
+
+<a id="nestedatt--volume_info"></a>
 ### Nested Schema for `volume_info`
 
 Optional:

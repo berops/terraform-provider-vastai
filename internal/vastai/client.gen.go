@@ -144,6 +144,24 @@ func (e CreateSSHKey400JSONResponseBodyError) Valid() bool {
 	}
 }
 
+// Defines values for ShowInstances400JSONResponseBodyError.
+const (
+	ShowInstances400JSONResponseBodyErrorInvalidRequest ShowInstances400JSONResponseBodyError = "invalid_request"
+	ShowInstances400JSONResponseBodyErrorInvalidToken   ShowInstances400JSONResponseBodyError = "invalid_token"
+)
+
+// Valid indicates whether the value is a known member of the ShowInstances400JSONResponseBodyError enum.
+func (e ShowInstances400JSONResponseBodyError) Valid() bool {
+	switch e {
+	case ShowInstances400JSONResponseBodyErrorInvalidRequest:
+		return true
+	case ShowInstances400JSONResponseBodyErrorInvalidToken:
+		return true
+	default:
+		return false
+	}
+}
+
 // Error defines model for Error.
 type Error struct {
 	Error   *string `json:"error,omitempty"`
@@ -769,6 +787,28 @@ type UpdateSSHKeyJSONBody struct {
 	SSHKey string `json:"ssh_key"`
 }
 
+// ShowInstancesParams defines parameters for ShowInstances.
+type ShowInstancesParams struct {
+	// Limit Instances per page. Default 25, max 25. Values ≤ 0 are treated as 5.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// AfterToken Keyset pagination cursor from the previous response's `next_token`. An invalid token returns a 400 error.
+	AfterToken *string `form:"after_token,omitempty" json:"after_token,omitempty"`
+
+	// OrderBy JSON array of sort directives, e.g. `[{"col":"id","dir":"asc"}]`. Valid `dir` values: `asc`, `desc` (anything else treated as `asc`). `id` is always appended as a tiebreaker. Invalid column returns 400.
+	OrderBy *string `form:"order_by,omitempty" json:"order_by,omitempty"`
+
+	// SelectCols JSON array of column names to return, e.g. `["id","label","actual_status"]`. Use `["*"]` for all columns (default). Unknown column names are returned as `null`.
+	SelectCols *string `form:"select_cols,omitempty" json:"select_cols,omitempty"`
+
+	// SelectFilters JSON object of column filters. Supported operators: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `notin`.
+	// Filterable columns: `actual_status`, `gpu_name`, `verification`, `id`, `label`, and other columns stored directly on the contract record. Computed fields (e.g. `dph_total`, `num_gpus`) are not filterable and return 400.
+	SelectFilters *string `form:"select_filters,omitempty" json:"select_filters,omitempty"`
+}
+
+// ShowInstances400JSONResponseBodyError defines parameters for ShowInstances.
+type ShowInstances400JSONResponseBodyError string
+
 // CreateInstanceJSONRequestBody defines body for CreateInstance for application/json ContentType.
 type CreateInstanceJSONRequestBody CreateInstanceJSONBody
 
@@ -1070,6 +1110,16 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /api/v0/ssh/{id} (the `UpdateSSHKey` operationId).
 	UpdateSSHKey(ctx context.Context, id int, body UpdateSSHKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ShowInstances show instances
+	//
+	// Retrieve a paginated list of instances for the authenticated user.
+	// Supports keyset pagination (max 25 per page), filtering, column selection, and sorting.
+	//
+	// CLI Usage: `vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]`
+	//
+	// Corresponds with GET /api/v1/instances (the `ShowInstances` operationId).
+	ShowInstances(ctx context.Context, params *ShowInstancesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // CreateInstanceWithBody create instance
@@ -1425,6 +1475,26 @@ func (c *VastAiClient) UpdateSSHKeyWithBody(ctx context.Context, id int, content
 // Corresponds with PUT /api/v0/ssh/{id} (the `UpdateSSHKey` operationId).
 func (c *VastAiClient) UpdateSSHKey(ctx context.Context, id int, body UpdateSSHKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateSSHKeyRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ShowInstances show instances
+//
+// Retrieve a paginated list of instances for the authenticated user.
+// Supports keyset pagination (max 25 per page), filtering, column selection, and sorting.
+//
+// CLI Usage: `vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]`
+//
+// Corresponds with GET /api/v1/instances (the `ShowInstances` operationId).
+func (c *VastAiClient) ShowInstances(ctx context.Context, params *ShowInstancesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewShowInstancesRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1832,6 +1902,108 @@ func NewUpdateSSHKeyRequestWithBody(server string, id int, contentType string, b
 	return req, nil
 }
 
+// NewShowInstancesRequest constructs an http.Request for the ShowInstances method
+func NewShowInstancesRequest(server string, params *ShowInstancesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/instances")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.AfterToken != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "after_token", *params.AfterToken, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.OrderBy != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "order_by", *params.OrderBy, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.SelectCols != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "select_cols", *params.SelectCols, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.SelectFilters != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "select_filters", *params.SelectFilters, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *VastAiClient) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -2098,6 +2270,18 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /api/v0/ssh/{id} (the `UpdateSSHKey` operationId).
 	UpdateSSHKeyWithResponse(ctx context.Context, id int, body UpdateSSHKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateSSHKeyResponse, error)
+
+	// ShowInstancesWithResponse show instances
+	//
+	// Retrieve a paginated list of instances for the authenticated user.
+	// Supports keyset pagination (max 25 per page), filtering, column selection, and sorting.
+	//
+	// CLI Usage: `vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]`
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/instances (the `ShowInstances` operationId).
+	ShowInstancesWithResponse(ctx context.Context, params *ShowInstancesParams, reqEditors ...RequestEditorFn) (*ShowInstancesResponse, error)
 }
 
 type CreateInstanceResponse struct {
@@ -2925,6 +3109,304 @@ func (r UpdateSSHKeyResponse) ContentType() string {
 	return ""
 }
 
+type ShowInstancesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *struct {
+		// Instances List of instance objects.
+		Instances *[]struct {
+			ActualStatus      nullable.Nullable[string]  `json:"actual_status,omitempty"`
+			BwNvlink          *float32                   `json:"bw_nvlink,omitempty"`
+			ClientRunTime     *float32                   `json:"client_run_time,omitempty"`
+			CountryCode       nullable.Nullable[string]  `json:"country_code,omitempty"`
+			CPUArch           *string                    `json:"cpu_arch,omitempty"`
+			CPUCores          *int                       `json:"cpu_cores,omitempty"`
+			CPUCoresEffective *float32                   `json:"cpu_cores_effective,omitempty"`
+			CPUName           *string                    `json:"cpu_name,omitempty"`
+			CPURAM            *int                       `json:"cpu_ram,omitempty"`
+			CPUUtil           *float32                   `json:"cpu_util,omitempty"`
+			CreditBalance     nullable.Nullable[float32] `json:"credit_balance,omitempty"`
+			CreditDiscount    nullable.Nullable[float32] `json:"credit_discount,omitempty"`
+			CreditDiscountMax nullable.Nullable[float32] `json:"credit_discount_max,omitempty"`
+			CurState          *string                    `json:"cur_state,omitempty"`
+			DirectPortCount   *int                       `json:"direct_port_count,omitempty"`
+			DirectPortEnd     *int                       `json:"direct_port_end,omitempty"`
+			DirectPortStart   *int                       `json:"direct_port_start,omitempty"`
+			DiskBw            *float32                   `json:"disk_bw,omitempty"`
+			DiskName          *string                    `json:"disk_name,omitempty"`
+			DiskSpace         *float32                   `json:"disk_space,omitempty"`
+			DiskUsage         *float32                   `json:"disk_usage,omitempty"`
+			DiskUtil          *float32                   `json:"disk_util,omitempty"`
+			Dlperf            nullable.Nullable[float32] `json:"dlperf,omitempty"`
+			DlperfPerDphtotal nullable.Nullable[float32] `json:"dlperf_per_dphtotal,omitempty"`
+			DphBase           *float32                   `json:"dph_base,omitempty"`
+			DphTotal          *float32                   `json:"dph_total,omitempty"`
+			Duration          *float32                   `json:"duration,omitempty"`
+			EndDate           *float32                   `json:"end_date,omitempty"`
+			External          *bool                      `json:"external,omitempty"`
+			ExtraEnv          *[][]string                `json:"extra_env,omitempty"`
+			FlopsPerDphtotal  *float32                   `json:"flops_per_dphtotal,omitempty"`
+			Geolocation       *string                    `json:"geolocation,omitempty"`
+			GpuArch           *string                    `json:"gpu_arch,omitempty"`
+			GpuFrac           *float32                   `json:"gpu_frac,omitempty"`
+			GpuLanes          *int                       `json:"gpu_lanes,omitempty"`
+			GpuMemBw          *float32                   `json:"gpu_mem_bw,omitempty"`
+			GpuName           *string                    `json:"gpu_name,omitempty"`
+			GpuRAM            *int                       `json:"gpu_ram,omitempty"`
+			GpuTemp           nullable.Nullable[float32] `json:"gpu_temp,omitempty"`
+			GpuTotalram       *int                       `json:"gpu_totalram,omitempty"`
+			GpuUtil           nullable.Nullable[float32] `json:"gpu_util,omitempty"`
+			HostID            *int                       `json:"host_id,omitempty"`
+			HostRunTime       *float32                   `json:"host_run_time,omitempty"`
+			ID                *int                       `json:"id,omitempty"`
+			ImageArgs         *[]string                  `json:"image_args,omitempty"`
+			ImageRuntype      *string                    `json:"image_runtype,omitempty"`
+			ImageUUID         *string                    `json:"image_uuid,omitempty"`
+			Instance          *map[string]interface{}    `json:"instance,omitempty"`
+			IntendedStatus    *string                    `json:"intended_status,omitempty"`
+			IsBid             *bool                      `json:"is_bid,omitempty"`
+			JupyterToken      *string                    `json:"jupyter_token,omitempty"`
+			Label             nullable.Nullable[string]  `json:"label,omitempty"`
+			LocalIpaddrs      *string                    `json:"local_ipaddrs,omitempty"`
+			MachineDirSSHPort *int                       `json:"machine_dir_ssh_port,omitempty"`
+			MachineID         *int                       `json:"machine_id,omitempty"`
+			MemLimit          nullable.Nullable[float32] `json:"mem_limit,omitempty"`
+			MemUsage          nullable.Nullable[float32] `json:"mem_usage,omitempty"`
+			MinBid            *float32                   `json:"min_bid,omitempty"`
+			MoboName          *string                    `json:"mobo_name,omitempty"`
+			NextState         *string                    `json:"next_state,omitempty"`
+			NumGpus           *int                       `json:"num_gpus,omitempty"`
+			Onstart           *string                    `json:"onstart,omitempty"`
+			OsVersion         nullable.Nullable[string]  `json:"os_version,omitempty"`
+			PciGen            *float32                   `json:"pci_gen,omitempty"`
+			PcieBw            *float32                   `json:"pcie_bw,omitempty"`
+
+			// Ports Port mappings. Only present on running instances.
+			Ports nullable.Nullable[map[string][]struct {
+				HostIP   *string `json:"HostIp,omitempty"`
+				HostPort *string `json:"HostPort,omitempty"`
+			}] `json:"ports,omitempty"`
+			PublicIpaddr       *string                    `json:"public_ipaddr,omitempty"`
+			Reliability2       *float32                   `json:"reliability2,omitempty"`
+			Rentable           *bool                      `json:"rentable,omitempty"`
+			Score              nullable.Nullable[float32] `json:"score,omitempty"`
+			Search             *map[string]interface{}    `json:"search,omitempty"`
+			SSHHost            *string                    `json:"ssh_host,omitempty"`
+			SSHIdx             *string                    `json:"ssh_idx,omitempty"`
+			SSHPort            *int                       `json:"ssh_port,omitempty"`
+			StartDate          *float32                   `json:"start_date,omitempty"`
+			StaticIP           *bool                      `json:"static_ip,omitempty"`
+			StatusMsg          nullable.Nullable[string]  `json:"status_msg,omitempty"`
+			StorageCost        *float32                   `json:"storage_cost,omitempty"`
+			StorageTotalCost   *float32                   `json:"storage_total_cost,omitempty"`
+			TemplateHashID     nullable.Nullable[string]  `json:"template_hash_id,omitempty"`
+			TemplateID         nullable.Nullable[int]     `json:"template_id,omitempty"`
+			TemplateName       nullable.Nullable[string]  `json:"template_name,omitempty"`
+			TimeRemaining      *string                    `json:"time_remaining,omitempty"`
+			TimeRemainingIsbid *string                    `json:"time_remaining_isbid,omitempty"`
+			TotalFlops         *float32                   `json:"total_flops,omitempty"`
+			UptimeMins         nullable.Nullable[float32] `json:"uptime_mins,omitempty"`
+			Verification       *string                    `json:"verification,omitempty"`
+			VmemUsage          nullable.Nullable[float32] `json:"vmem_usage,omitempty"`
+			VolumeInfo         *[]map[string]interface{}  `json:"volume_info,omitempty"`
+			VramCostperhour    *float32                   `json:"vram_costperhour,omitempty"`
+			Webpage            nullable.Nullable[string]  `json:"webpage,omitempty"`
+		} `json:"instances,omitempty"`
+
+		// InstancesFound Number of instances returned in this page.
+		InstancesFound *int `json:"instances_found,omitempty"`
+
+		// LabelCounts Count of instances grouped by label. Unlabelled instances are keyed by empty string.
+		LabelCounts *map[string]interface{} `json:"label_counts,omitempty"`
+
+		// NextToken Pagination cursor for the next page. `null` when no more pages.
+		NextToken nullable.Nullable[string] `json:"next_token,omitempty"`
+		Success   *bool                     `json:"success,omitempty"`
+
+		// TotalInstances Total number of instances matching the filters.
+		TotalInstances *int `json:"total_instances,omitempty"`
+	}
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Error *ShowInstances400JSONResponseBodyError `json:"error,omitempty"`
+		Msg   *string                                `json:"msg,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Error
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *struct {
+		Detail *string `json:"detail,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ShowInstancesResponse) GetJSON200() *struct {
+	// Instances List of instance objects.
+	Instances *[]struct {
+		ActualStatus      nullable.Nullable[string]  `json:"actual_status,omitempty"`
+		BwNvlink          *float32                   `json:"bw_nvlink,omitempty"`
+		ClientRunTime     *float32                   `json:"client_run_time,omitempty"`
+		CountryCode       nullable.Nullable[string]  `json:"country_code,omitempty"`
+		CPUArch           *string                    `json:"cpu_arch,omitempty"`
+		CPUCores          *int                       `json:"cpu_cores,omitempty"`
+		CPUCoresEffective *float32                   `json:"cpu_cores_effective,omitempty"`
+		CPUName           *string                    `json:"cpu_name,omitempty"`
+		CPURAM            *int                       `json:"cpu_ram,omitempty"`
+		CPUUtil           *float32                   `json:"cpu_util,omitempty"`
+		CreditBalance     nullable.Nullable[float32] `json:"credit_balance,omitempty"`
+		CreditDiscount    nullable.Nullable[float32] `json:"credit_discount,omitempty"`
+		CreditDiscountMax nullable.Nullable[float32] `json:"credit_discount_max,omitempty"`
+		CurState          *string                    `json:"cur_state,omitempty"`
+		DirectPortCount   *int                       `json:"direct_port_count,omitempty"`
+		DirectPortEnd     *int                       `json:"direct_port_end,omitempty"`
+		DirectPortStart   *int                       `json:"direct_port_start,omitempty"`
+		DiskBw            *float32                   `json:"disk_bw,omitempty"`
+		DiskName          *string                    `json:"disk_name,omitempty"`
+		DiskSpace         *float32                   `json:"disk_space,omitempty"`
+		DiskUsage         *float32                   `json:"disk_usage,omitempty"`
+		DiskUtil          *float32                   `json:"disk_util,omitempty"`
+		Dlperf            nullable.Nullable[float32] `json:"dlperf,omitempty"`
+		DlperfPerDphtotal nullable.Nullable[float32] `json:"dlperf_per_dphtotal,omitempty"`
+		DphBase           *float32                   `json:"dph_base,omitempty"`
+		DphTotal          *float32                   `json:"dph_total,omitempty"`
+		Duration          *float32                   `json:"duration,omitempty"`
+		EndDate           *float32                   `json:"end_date,omitempty"`
+		External          *bool                      `json:"external,omitempty"`
+		ExtraEnv          *[][]string                `json:"extra_env,omitempty"`
+		FlopsPerDphtotal  *float32                   `json:"flops_per_dphtotal,omitempty"`
+		Geolocation       *string                    `json:"geolocation,omitempty"`
+		GpuArch           *string                    `json:"gpu_arch,omitempty"`
+		GpuFrac           *float32                   `json:"gpu_frac,omitempty"`
+		GpuLanes          *int                       `json:"gpu_lanes,omitempty"`
+		GpuMemBw          *float32                   `json:"gpu_mem_bw,omitempty"`
+		GpuName           *string                    `json:"gpu_name,omitempty"`
+		GpuRAM            *int                       `json:"gpu_ram,omitempty"`
+		GpuTemp           nullable.Nullable[float32] `json:"gpu_temp,omitempty"`
+		GpuTotalram       *int                       `json:"gpu_totalram,omitempty"`
+		GpuUtil           nullable.Nullable[float32] `json:"gpu_util,omitempty"`
+		HostID            *int                       `json:"host_id,omitempty"`
+		HostRunTime       *float32                   `json:"host_run_time,omitempty"`
+		ID                *int                       `json:"id,omitempty"`
+		ImageArgs         *[]string                  `json:"image_args,omitempty"`
+		ImageRuntype      *string                    `json:"image_runtype,omitempty"`
+		ImageUUID         *string                    `json:"image_uuid,omitempty"`
+		Instance          *map[string]interface{}    `json:"instance,omitempty"`
+		IntendedStatus    *string                    `json:"intended_status,omitempty"`
+		IsBid             *bool                      `json:"is_bid,omitempty"`
+		JupyterToken      *string                    `json:"jupyter_token,omitempty"`
+		Label             nullable.Nullable[string]  `json:"label,omitempty"`
+		LocalIpaddrs      *string                    `json:"local_ipaddrs,omitempty"`
+		MachineDirSSHPort *int                       `json:"machine_dir_ssh_port,omitempty"`
+		MachineID         *int                       `json:"machine_id,omitempty"`
+		MemLimit          nullable.Nullable[float32] `json:"mem_limit,omitempty"`
+		MemUsage          nullable.Nullable[float32] `json:"mem_usage,omitempty"`
+		MinBid            *float32                   `json:"min_bid,omitempty"`
+		MoboName          *string                    `json:"mobo_name,omitempty"`
+		NextState         *string                    `json:"next_state,omitempty"`
+		NumGpus           *int                       `json:"num_gpus,omitempty"`
+		Onstart           *string                    `json:"onstart,omitempty"`
+		OsVersion         nullable.Nullable[string]  `json:"os_version,omitempty"`
+		PciGen            *float32                   `json:"pci_gen,omitempty"`
+		PcieBw            *float32                   `json:"pcie_bw,omitempty"`
+
+		// Ports Port mappings. Only present on running instances.
+		Ports nullable.Nullable[map[string][]struct {
+			HostIP   *string `json:"HostIp,omitempty"`
+			HostPort *string `json:"HostPort,omitempty"`
+		}] `json:"ports,omitempty"`
+		PublicIpaddr       *string                    `json:"public_ipaddr,omitempty"`
+		Reliability2       *float32                   `json:"reliability2,omitempty"`
+		Rentable           *bool                      `json:"rentable,omitempty"`
+		Score              nullable.Nullable[float32] `json:"score,omitempty"`
+		Search             *map[string]interface{}    `json:"search,omitempty"`
+		SSHHost            *string                    `json:"ssh_host,omitempty"`
+		SSHIdx             *string                    `json:"ssh_idx,omitempty"`
+		SSHPort            *int                       `json:"ssh_port,omitempty"`
+		StartDate          *float32                   `json:"start_date,omitempty"`
+		StaticIP           *bool                      `json:"static_ip,omitempty"`
+		StatusMsg          nullable.Nullable[string]  `json:"status_msg,omitempty"`
+		StorageCost        *float32                   `json:"storage_cost,omitempty"`
+		StorageTotalCost   *float32                   `json:"storage_total_cost,omitempty"`
+		TemplateHashID     nullable.Nullable[string]  `json:"template_hash_id,omitempty"`
+		TemplateID         nullable.Nullable[int]     `json:"template_id,omitempty"`
+		TemplateName       nullable.Nullable[string]  `json:"template_name,omitempty"`
+		TimeRemaining      *string                    `json:"time_remaining,omitempty"`
+		TimeRemainingIsbid *string                    `json:"time_remaining_isbid,omitempty"`
+		TotalFlops         *float32                   `json:"total_flops,omitempty"`
+		UptimeMins         nullable.Nullable[float32] `json:"uptime_mins,omitempty"`
+		Verification       *string                    `json:"verification,omitempty"`
+		VmemUsage          nullable.Nullable[float32] `json:"vmem_usage,omitempty"`
+		VolumeInfo         *[]map[string]interface{}  `json:"volume_info,omitempty"`
+		VramCostperhour    *float32                   `json:"vram_costperhour,omitempty"`
+		Webpage            nullable.Nullable[string]  `json:"webpage,omitempty"`
+	} `json:"instances,omitempty"`
+
+	// InstancesFound Number of instances returned in this page.
+	InstancesFound *int `json:"instances_found,omitempty"`
+
+	// LabelCounts Count of instances grouped by label. Unlabelled instances are keyed by empty string.
+	LabelCounts *map[string]interface{} `json:"label_counts,omitempty"`
+
+	// NextToken Pagination cursor for the next page. `null` when no more pages.
+	NextToken nullable.Nullable[string] `json:"next_token,omitempty"`
+	Success   *bool                     `json:"success,omitempty"`
+
+	// TotalInstances Total number of instances matching the filters.
+	TotalInstances *int `json:"total_instances,omitempty"`
+} {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ShowInstancesResponse) GetJSON400() *struct {
+	Error *ShowInstances400JSONResponseBodyError `json:"error,omitempty"`
+	Msg   *string                                `json:"msg,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ShowInstancesResponse) GetJSON401() *Error {
+	return r.JSON401
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r ShowInstancesResponse) GetJSON429() *struct {
+	Detail *string `json:"detail,omitempty"`
+} {
+	return r.JSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r ShowInstancesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ShowInstancesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ShowInstancesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ShowInstancesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // CreateInstanceWithBodyWithResponse create instance
 //
 // Creates a new instance by accepting an "ask" contract from a provider.
@@ -3236,6 +3718,24 @@ func (c *ClientWithResponses) UpdateSSHKeyWithResponse(ctx context.Context, id i
 		return nil, err
 	}
 	return ParseUpdateSSHKeyResponse(rsp)
+}
+
+// ShowInstancesWithResponse show instances
+//
+// Retrieve a paginated list of instances for the authenticated user.
+// Supports keyset pagination (max 25 per page), filtering, column selection, and sorting.
+//
+// CLI Usage: `vastai show instances [OPTIONS] [--api-key API_KEY] [--raw]`
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/instances (the `ShowInstances` operationId).
+func (c *ClientWithResponses) ShowInstancesWithResponse(ctx context.Context, params *ShowInstancesParams, reqEditors ...RequestEditorFn) (*ShowInstancesResponse, error) {
+	rsp, err := c.ShowInstances(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseShowInstancesResponse(rsp)
 }
 
 // ParseCreateInstanceResponse parses an HTTP response from a CreateInstanceWithResponse call
@@ -3791,6 +4291,171 @@ func ParseUpdateSSHKeyResponse(rsp *http.Response) (*UpdateSSHKeyResponse, error
 			return nil, err
 		}
 		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseShowInstancesResponse parses an HTTP response from a ShowInstancesWithResponse call
+func ParseShowInstancesResponse(rsp *http.Response) (*ShowInstancesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ShowInstancesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest struct {
+			// Instances List of instance objects.
+			Instances *[]struct {
+				ActualStatus      nullable.Nullable[string]  `json:"actual_status,omitempty"`
+				BwNvlink          *float32                   `json:"bw_nvlink,omitempty"`
+				ClientRunTime     *float32                   `json:"client_run_time,omitempty"`
+				CountryCode       nullable.Nullable[string]  `json:"country_code,omitempty"`
+				CPUArch           *string                    `json:"cpu_arch,omitempty"`
+				CPUCores          *int                       `json:"cpu_cores,omitempty"`
+				CPUCoresEffective *float32                   `json:"cpu_cores_effective,omitempty"`
+				CPUName           *string                    `json:"cpu_name,omitempty"`
+				CPURAM            *int                       `json:"cpu_ram,omitempty"`
+				CPUUtil           *float32                   `json:"cpu_util,omitempty"`
+				CreditBalance     nullable.Nullable[float32] `json:"credit_balance,omitempty"`
+				CreditDiscount    nullable.Nullable[float32] `json:"credit_discount,omitempty"`
+				CreditDiscountMax nullable.Nullable[float32] `json:"credit_discount_max,omitempty"`
+				CurState          *string                    `json:"cur_state,omitempty"`
+				DirectPortCount   *int                       `json:"direct_port_count,omitempty"`
+				DirectPortEnd     *int                       `json:"direct_port_end,omitempty"`
+				DirectPortStart   *int                       `json:"direct_port_start,omitempty"`
+				DiskBw            *float32                   `json:"disk_bw,omitempty"`
+				DiskName          *string                    `json:"disk_name,omitempty"`
+				DiskSpace         *float32                   `json:"disk_space,omitempty"`
+				DiskUsage         *float32                   `json:"disk_usage,omitempty"`
+				DiskUtil          *float32                   `json:"disk_util,omitempty"`
+				Dlperf            nullable.Nullable[float32] `json:"dlperf,omitempty"`
+				DlperfPerDphtotal nullable.Nullable[float32] `json:"dlperf_per_dphtotal,omitempty"`
+				DphBase           *float32                   `json:"dph_base,omitempty"`
+				DphTotal          *float32                   `json:"dph_total,omitempty"`
+				Duration          *float32                   `json:"duration,omitempty"`
+				EndDate           *float32                   `json:"end_date,omitempty"`
+				External          *bool                      `json:"external,omitempty"`
+				ExtraEnv          *[][]string                `json:"extra_env,omitempty"`
+				FlopsPerDphtotal  *float32                   `json:"flops_per_dphtotal,omitempty"`
+				Geolocation       *string                    `json:"geolocation,omitempty"`
+				GpuArch           *string                    `json:"gpu_arch,omitempty"`
+				GpuFrac           *float32                   `json:"gpu_frac,omitempty"`
+				GpuLanes          *int                       `json:"gpu_lanes,omitempty"`
+				GpuMemBw          *float32                   `json:"gpu_mem_bw,omitempty"`
+				GpuName           *string                    `json:"gpu_name,omitempty"`
+				GpuRAM            *int                       `json:"gpu_ram,omitempty"`
+				GpuTemp           nullable.Nullable[float32] `json:"gpu_temp,omitempty"`
+				GpuTotalram       *int                       `json:"gpu_totalram,omitempty"`
+				GpuUtil           nullable.Nullable[float32] `json:"gpu_util,omitempty"`
+				HostID            *int                       `json:"host_id,omitempty"`
+				HostRunTime       *float32                   `json:"host_run_time,omitempty"`
+				ID                *int                       `json:"id,omitempty"`
+				ImageArgs         *[]string                  `json:"image_args,omitempty"`
+				ImageRuntype      *string                    `json:"image_runtype,omitempty"`
+				ImageUUID         *string                    `json:"image_uuid,omitempty"`
+				Instance          *map[string]interface{}    `json:"instance,omitempty"`
+				IntendedStatus    *string                    `json:"intended_status,omitempty"`
+				IsBid             *bool                      `json:"is_bid,omitempty"`
+				JupyterToken      *string                    `json:"jupyter_token,omitempty"`
+				Label             nullable.Nullable[string]  `json:"label,omitempty"`
+				LocalIpaddrs      *string                    `json:"local_ipaddrs,omitempty"`
+				MachineDirSSHPort *int                       `json:"machine_dir_ssh_port,omitempty"`
+				MachineID         *int                       `json:"machine_id,omitempty"`
+				MemLimit          nullable.Nullable[float32] `json:"mem_limit,omitempty"`
+				MemUsage          nullable.Nullable[float32] `json:"mem_usage,omitempty"`
+				MinBid            *float32                   `json:"min_bid,omitempty"`
+				MoboName          *string                    `json:"mobo_name,omitempty"`
+				NextState         *string                    `json:"next_state,omitempty"`
+				NumGpus           *int                       `json:"num_gpus,omitempty"`
+				Onstart           *string                    `json:"onstart,omitempty"`
+				OsVersion         nullable.Nullable[string]  `json:"os_version,omitempty"`
+				PciGen            *float32                   `json:"pci_gen,omitempty"`
+				PcieBw            *float32                   `json:"pcie_bw,omitempty"`
+
+				// Ports Port mappings. Only present on running instances.
+				Ports nullable.Nullable[map[string][]struct {
+					HostIP   *string `json:"HostIp,omitempty"`
+					HostPort *string `json:"HostPort,omitempty"`
+				}] `json:"ports,omitempty"`
+				PublicIpaddr       *string                    `json:"public_ipaddr,omitempty"`
+				Reliability2       *float32                   `json:"reliability2,omitempty"`
+				Rentable           *bool                      `json:"rentable,omitempty"`
+				Score              nullable.Nullable[float32] `json:"score,omitempty"`
+				Search             *map[string]interface{}    `json:"search,omitempty"`
+				SSHHost            *string                    `json:"ssh_host,omitempty"`
+				SSHIdx             *string                    `json:"ssh_idx,omitempty"`
+				SSHPort            *int                       `json:"ssh_port,omitempty"`
+				StartDate          *float32                   `json:"start_date,omitempty"`
+				StaticIP           *bool                      `json:"static_ip,omitempty"`
+				StatusMsg          nullable.Nullable[string]  `json:"status_msg,omitempty"`
+				StorageCost        *float32                   `json:"storage_cost,omitempty"`
+				StorageTotalCost   *float32                   `json:"storage_total_cost,omitempty"`
+				TemplateHashID     nullable.Nullable[string]  `json:"template_hash_id,omitempty"`
+				TemplateID         nullable.Nullable[int]     `json:"template_id,omitempty"`
+				TemplateName       nullable.Nullable[string]  `json:"template_name,omitempty"`
+				TimeRemaining      *string                    `json:"time_remaining,omitempty"`
+				TimeRemainingIsbid *string                    `json:"time_remaining_isbid,omitempty"`
+				TotalFlops         *float32                   `json:"total_flops,omitempty"`
+				UptimeMins         nullable.Nullable[float32] `json:"uptime_mins,omitempty"`
+				Verification       *string                    `json:"verification,omitempty"`
+				VmemUsage          nullable.Nullable[float32] `json:"vmem_usage,omitempty"`
+				VolumeInfo         *[]map[string]interface{}  `json:"volume_info,omitempty"`
+				VramCostperhour    *float32                   `json:"vram_costperhour,omitempty"`
+				Webpage            nullable.Nullable[string]  `json:"webpage,omitempty"`
+			} `json:"instances,omitempty"`
+
+			// InstancesFound Number of instances returned in this page.
+			InstancesFound *int `json:"instances_found,omitempty"`
+
+			// LabelCounts Count of instances grouped by label. Unlabelled instances are keyed by empty string.
+			LabelCounts *map[string]interface{} `json:"label_counts,omitempty"`
+
+			// NextToken Pagination cursor for the next page. `null` when no more pages.
+			NextToken nullable.Nullable[string] `json:"next_token,omitempty"`
+			Success   *bool                     `json:"success,omitempty"`
+
+			// TotalInstances Total number of instances matching the filters.
+			TotalInstances *int `json:"total_instances,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Error *ShowInstances400JSONResponseBodyError `json:"error,omitempty"`
+			Msg   *string                                `json:"msg,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest struct {

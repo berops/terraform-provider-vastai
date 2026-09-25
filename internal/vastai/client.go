@@ -217,6 +217,38 @@ func (c *Client) ShowInstance(ctx context.Context, instanceID int64) (*Instance,
 	return r.JSON200.Instances, nil
 }
 
+// InstanceSummary is the subset of a listed instance the provider uses.
+type InstanceSummary struct {
+	ID           int64  `json:"id"`
+	Label        string `json:"label"`
+	ActualStatus string `json:"actual_status"`
+}
+
+// ListInstances returns all instances of the account, following pagination.
+func (c *Client) ListInstances(ctx context.Context) ([]InstanceSummary, error) {
+	var all []InstanceSummary
+	cols := `["id","label","actual_status"]`
+	params := &ShowInstancesParams{SelectCols: &cols}
+	for {
+		r, err := c.ShowInstancesWithResponse(ctx, params)
+		if err := check(r, err); err != nil {
+			return nil, fmt.Errorf("listing instances: %w", err)
+		}
+		var page struct {
+			Instances []InstanceSummary `json:"instances"`
+			NextToken *string           `json:"next_token"`
+		}
+		if err := json.Unmarshal(r.Body, &page); err != nil {
+			return nil, fmt.Errorf("listing instances: decoding response: %w: %s", err, r.Body)
+		}
+		all = append(all, page.Instances...)
+		if page.NextToken == nil || *page.NextToken == "" {
+			return all, nil
+		}
+		params.AfterToken = page.NextToken
+	}
+}
+
 func (c *Client) DestroyInstance(ctx context.Context, instanceID int64) error {
 	r, err := c.DestroyInstanceWithResponse(ctx, int(instanceID), withJSONBody("{}"))
 	if err := check(r, err); err != nil && !errors.Is(err, ErrNotFound) {
@@ -240,6 +272,10 @@ func withJSONBody(body string) RequestEditorFn {
 		req.Header.Set("Content-Type", "application/json")
 		return nil
 	}
+}
+
+func isErrorStatusMsg(msg string) bool {
+	return strings.HasPrefix(strings.ToLower(msg), "error")
 }
 
 func (c *Client) WaitForIntendedStatus(ctx context.Context, instanceID int64, intendedStatus string, terminalActualStatuses []string) (*Instance, error) {
@@ -277,6 +313,12 @@ func (c *Client) WaitForIntendedStatus(ctx context.Context, instanceID int64, in
 					msg = ": " + msg
 				}
 				return inst, fmt.Errorf("instance %d entered actual status %q and will not reach %q%s", instanceID, actualStatus, wantActualStatus, msg)
+			}
+			// A host that fails to start the instance (e.g. "Error: GPU
+			// error, unable to start instance.") only reports it in
+			// status_msg and leaves actual_status at loading forever.
+			if wantActualStatus == ActualStatusRunning && isErrorStatusMsg(inst.StatusMsg.GetOrEmpty()) {
+				return inst, fmt.Errorf("instance %d failed to start: %s", instanceID, inst.StatusMsg.GetOrEmpty())
 			}
 		}
 

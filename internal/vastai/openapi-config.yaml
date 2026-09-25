@@ -20,6 +20,7 @@ output-options:
     - createInstance
     - destroyInstance
     - showInstance
+    - showInstances
     - manageInstance
     - searchOffers
 

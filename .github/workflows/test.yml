@@ -57,6 +57,11 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # The tests rent real instances on shared accounts, and the sweeper below
+    # destroys every tf-acc-* instance, so never run two of these at once.
+    concurrency:
+      group: vastai-acceptance-tests
+      cancel-in-progress: false
     # Only run when secrets are available (not on fork PRs)
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     env:
@@ -79,4 +84,8 @@ jobs:
         if: env.VASTAI_PERSONAL_API_KEY != '' && env.VASTAI_TEAM_API_KEY != ''
         env:
           TF_ACC: "1"
-        run: go test -v -cover -timeout=40m -run "^TestAcc" ./internal/provider/
+        run: go test -v -cover -timeout=20m -run "^TestAcc" ./internal/provider/
+      - name: Sweep leftover instances
+        if: always() && env.VASTAI_PERSONAL_API_KEY != '' && env.VASTAI_TEAM_API_KEY != ''
+        timeout-minutes: 7
+        run: go test -v -sweep=all ./internal/provider/
