@@ -130,7 +130,9 @@ func check(r response, err error) error {
 	}
 	body := r.GetBody()
 	_ = json.Unmarshal(body, &env) // best effort; error bodies are not always JSON
-	if r.StatusCode() < 400 && (env.Success == nil || *env.Success) {
+	// A 3xx only reaches us when the redirect could not be followed; treat it
+	// as a failure rather than letting the call look successful.
+	if r.StatusCode() < 300 && (env.Success == nil || *env.Success) {
 		return nil
 	}
 	return &APIError{
@@ -267,7 +269,12 @@ func (c *Client) ManageInstance(ctx context.Context, instanceID int64, body Mana
 
 func withJSONBody(body string) RequestEditorFn {
 	return func(_ context.Context, req *http.Request) error {
-		req.Body = io.NopCloser(strings.NewReader(body))
+		// GetBody lets net/http replay the body when following a 307/308
+		// redirect; without it the redirect response is returned as is.
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader(body)), nil
+		}
+		req.Body, _ = req.GetBody()
 		req.ContentLength = int64(len(body))
 		req.Header.Set("Content-Type", "application/json")
 		return nil

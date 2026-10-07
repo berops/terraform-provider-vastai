@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -53,22 +54,59 @@ func sweepInstances(string) error {
 		if err != nil {
 			return err
 		}
-		instances, err := client.ListInstances(ctx)
+		instances, err := listTestInstances(ctx, client)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s account: %w", name, err))
 			continue
 		}
 		for _, inst := range instances {
-			if !strings.HasPrefix(inst.Label, testAccResourcePrefix) {
-				continue
-			}
 			log.Printf("[INFO] destroying instance %d (%s, %s)", inst.ID, inst.Label, inst.ActualStatus)
 			if err := client.DestroyInstance(ctx, inst.ID); err != nil {
 				errs = append(errs, fmt.Errorf("%s account: %w", name, err))
 			}
 		}
+		// A destroy the API accepted is no proof the instance is gone, and
+		// destruction is asynchronous anyway, so only succeed once no test
+		// instance is listed any more.
+		if err := waitForNoTestInstances(ctx, client); err != nil {
+			errs = append(errs, fmt.Errorf("%s account: %w", name, err))
+		}
 	}
 	return errors.Join(errs...)
+}
+
+func listTestInstances(ctx context.Context, client *vastai.Client) ([]vastai.InstanceSummary, error) {
+	instances, err := client.ListInstances(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(instances, func(inst vastai.InstanceSummary) bool {
+		return !strings.HasPrefix(inst.Label, testAccResourcePrefix)
+	}), nil
+}
+
+func waitForNoTestInstances(ctx context.Context, client *vastai.Client) error {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		left, err := listTestInstances(ctx, client)
+		if err != nil {
+			return err
+		}
+		if len(left) == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			var names []string
+			for _, inst := range left {
+				names = append(names, fmt.Sprintf("%d (%s, %s)", inst.ID, inst.Label, inst.ActualStatus))
+			}
+			return fmt.Errorf("instances still exist after destroy: %s", strings.Join(names, ", "))
+		case <-ticker.C:
+		}
+	}
 }
 
 // sweepSSHKeys deletes keys whose comment starts with the test prefix. Only
